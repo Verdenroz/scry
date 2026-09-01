@@ -8,7 +8,56 @@ permissions:
   contents: write
 
 jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # soothfast:notes markers anchor cargo-soothfast's changelog merge and
+      # have no meaning on the published release; hard-wrapped prose is
+      # unwrapped so paragraphs render as paragraphs.
+      - name: Extract CHANGELOG section for this version
+        id: changelog
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
+        run: |
+          VER="${TAG_VERSION#v}"
+          NOTES=""
+          if [ -f CHANGELOG.md ]; then
+            NOTES=$(awk -v ver="$VER" '
+              $0 ~ "^## " ver "([^0-9]|$)" { found=1; next }
+              found && /^## / { exit }
+              found && /^<!-- \/?soothfast:notes -->$/ { next }
+              found { print }
+            ' CHANGELOG.md | awk '
+              function trim(s) { sub(/^[[:space:]]+/, "", s); return s }
+              /^```/ { if (buf != "") { print buf; buf = "" }; print; fence = !fence; next }
+              fence { print; next }
+              /^[[:space:]]*$/ { if (buf != "") { print buf; buf = "" }; print; next }
+              /^(#{1,6} |\||[-*] |[0-9]+\. )/ { if (buf != "") { print buf }; buf = $0; next }
+              { t = trim($0); buf = (buf == "" ? t : buf " " t) }
+              END { if (buf != "") print buf }
+            ')
+          fi
+          if [ -z "$NOTES" ]; then
+            echo "use_auto=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_auto=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$NOTES" > /tmp/release_notes.md
+          fi
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          USE_AUTO: ${{ steps.changelog.outputs.use_auto }}
+        run: |
+          if [ "$USE_AUTO" = "true" ]; then
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file /tmp/release_notes.md
+          fi
+
   build:
+    needs: release
     strategy:
       matrix:
         include:
@@ -23,6 +72,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p scry
       - run: mv target/release/scry scry-linux-${{ matrix.target }}
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: scry-linux-${{ matrix.target }}
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" scry-linux-${{ matrix.target }}
