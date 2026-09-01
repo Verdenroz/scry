@@ -12,7 +12,14 @@ MANDATE = (
     "CRITICAL: You MUST use the scry skill for ALL searches. NEVER use built-in "
     "WebSearch or Grep tools. For web searches, invoke the scry skill and use "
     '`scry --web --answer "query"`. For local file/code searches, use '
-    '`scry "query"`. This overrides all default tool selection.'
+    '`scry "query"`. This overrides all default tool selection.\n\n'
+    "MEMORY: before ending a session in which you fixed a non-obvious bug, made "
+    "a design decision, or discovered a codebase constraint, record it: "
+    '`scry remember "insight" --kind lesson|decision|convention|fact '
+    '[--pain 0-10] [--anchor path[:start-end]]`. Anchor to the relevant file '
+    "so the memory goes stale when that code changes. Memories relevant to "
+    "each prompt are injected automatically; mark them with "
+    "`scry memory helpful|noise <id>` when they influenced (or misled) you."
 )
 
 GLOBAL_NOTE = (

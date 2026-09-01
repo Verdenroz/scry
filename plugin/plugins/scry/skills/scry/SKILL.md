@@ -29,6 +29,18 @@ what you are searching for in natural language. The results are the file
 path and the line range of the match. Memories about this codebase (past
 lessons, decisions, conventions) surface with `scry recall "query"`.
 
+## Memory discipline
+
+Relevant memories are injected into each prompt automatically; you do not
+need to fetch them. Your obligations are the write side:
+
+- After fixing a non-obvious bug, making a design decision, or hitting a
+  hidden constraint, record it before the session ends:
+  `scry remember "parse_settings panics on non-numeric input" --kind lesson --pain 6 --anchor src/parser.rs`
+- When an injected memory influenced your work, run
+  `scry memory helpful <id>`; when one was wrong or irrelevant noise, run
+  `scry memory noise <id>`. This feedback drives what surfaces next time.
+
 ## Options
 
 - `-m, --max-count <n>`: limit the number of results (default 10)
