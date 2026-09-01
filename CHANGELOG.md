@@ -12,6 +12,7 @@
 
 ### ✨ Features
 
+- Memory write discipline in session context
 - Soothfast changelog with release-notes wiring
 
 ### 📝 Documentation
