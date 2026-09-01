@@ -15,6 +15,10 @@
 - Memory write discipline in session context
 - Soothfast changelog with release-notes wiring
 
+### 🐛 Fixes
+
+- Timeouts on every outbound HTTP client
+
 ### 📝 Documentation
 
 - Add CLAUDE.md
