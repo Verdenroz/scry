@@ -1,0 +1,8 @@
+[site]
+name = "scry"
+version = "0.1.0"
+repo = "https://github.com/Verdenroz/scry"
+
+[[site.nav]]
+title = "Guide"
+pages = ["index.md"]

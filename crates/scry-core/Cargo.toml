@@ -1,0 +1,22 @@
+[package]
+name = "scry-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bench]]
+name = "soothfast"
+harness = false
+
+[dependencies]
+ignore = "0.4.33"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+toml = "1.1.4"
+tracing = "0.1.44"
+xxhash-rust = { version = "0.8.18", features = ["xxh64"] }
+
+[dev-dependencies]
+soothfast = { version = "0.2.0", features = ["runner"] }
+tempfile = "3.27.0"

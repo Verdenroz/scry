@@ -1,0 +1,9 @@
+[package]
+name = "scry-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+scry-core.workspace = true

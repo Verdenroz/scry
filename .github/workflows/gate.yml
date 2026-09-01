@@ -1,0 +1,26 @@
+name: gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # callgrind fallback for PMU-less runners
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
+      - run: cargo install cargo-soothfast --locked
+      - run: cargo soothfast gate -p scry-core --against-ref "origin/${{ github.base_ref }}"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: soothfast-triage
+          path: .soothfast/triage/
