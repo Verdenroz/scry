@@ -5,4 +5,4 @@ repo = "https://github.com/Verdenroz/scry"
 
 [[site.nav]]
 title = "Guide"
-pages = ["index.md"]
+pages = ["index.md", "search.md", "sync-protocol.md", "memory.md", "hosting.md"]

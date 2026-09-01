@@ -1,0 +1,5 @@
+# Public HTTPS in front of scry. Auth stays app-level (bearer token),
+# so Caddy only terminates TLS and proxies.
+scry.example.com {
+	reverse_proxy 127.0.0.1:7345
+}

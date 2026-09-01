@@ -1,0 +1,32 @@
+# Self-contained scry deployment: server + CPU embedding endpoint.
+# Put an embedding GGUF at ./models/embedding.gguf and a config at
+# ./config.toml (start from config.example.toml), then `docker compose up`.
+services:
+  scry:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "7345:7345"
+    volumes:
+      - scry-data:/data
+      - ./config.toml:/etc/scry/config.toml:ro
+    environment:
+      SCRY_CONFIG: /etc/scry/config.toml
+      SCRY_LISTEN: 0.0.0.0:7345
+      SCRY_DB_PATH: /data/index.db
+      SCRY_TOKEN: ${SCRY_TOKEN:?set a bearer token}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+    depends_on:
+      - llama
+
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command: >-
+      -m /models/embedding.gguf --embedding
+      --host 0.0.0.0 --port 8080 --ctx-size 8192
+    volumes:
+      - ./models:/models:ro
+
+volumes:
+  scry-data:

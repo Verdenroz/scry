@@ -1,0 +1,41 @@
+# scry server configuration. Every key is optional; the values shown are
+# the defaults unless marked otherwise. Env overrides: SCRY_LISTEN,
+# SCRY_DB_PATH, SCRY_SERVER_URL, SCRY_TOKEN, SCRY_CONFIG, TAVILY_API_KEY.
+# Secret-bearing keys accept "env:VAR" indirection.
+
+[server]
+listen = "127.0.0.1:7345"
+db_path = "~/.local/share/scry/index.db"
+# auth_token = "env:SCRY_TOKEN"          # required for non-loopback listeners
+
+[embedding]
+base_url = "http://localhost:12434/v1"   # any OpenAI-compatible /v1/embeddings
+api_key = "ollama"
+model = "harrier-oss:0.6b"
+dim = 1024
+batch_size = 32
+
+# Enables --answer and HyDE query expansion. Point at any OpenAI-compatible
+# chat endpoint; thinking = true keeps reasoning mode on for models that
+# support it (off by default so the token budget goes to the answer).
+# [chat]
+# base_url = "http://localhost:12434/v1"
+# model = "qwen3.6:35b-a3b"
+
+# Enables --web. Free tier at tavily.com.
+# [tavily]
+# api_key = "env:TAVILY_API_KEY"
+
+[client]
+server_url = "http://127.0.0.1:7345"
+# token = "env:SCRY_TOKEN"
+
+[index]
+max_file_size = "1MB"
+max_file_count = 10000
+
+[search]
+hyde = "auto"        # auto | on | off; auto = natural-language queries only
+
+[memory]
+half_life_days = 29.0

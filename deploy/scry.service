@@ -1,0 +1,13 @@
+# systemd user unit for a bare-metal install.
+# Install: cp scry.service ~/.config/systemd/user/ && systemctl --user enable --now scry
+[Unit]
+Description=scry semantic code search server
+After=network.target
+
+[Service]
+ExecStart=%h/.cargo/bin/scry serve
+Restart=on-failure
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target
