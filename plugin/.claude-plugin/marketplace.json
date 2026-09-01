@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "scry",
+  "owner": {
+    "name": "Verdenroz"
+  },
+  "plugins": [
+    {
+      "name": "scry",
+      "source": "./plugins/scry",
+      "description": "Self-hosted semantic code search, shared across your devices",
+      "version": "0.1.0",
+      "author": {
+        "name": "Verdenroz"
+      },
+      "skills": ["./skills/scry"]
+    }
+  ]
+}

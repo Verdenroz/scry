@@ -1,0 +1,9 @@
+{
+  "name": "scry",
+  "description": "Self-hosted semantic code search, shared across your devices",
+  "version": "0.1.0",
+  "author": {
+    "name": "Verdenroz"
+  },
+  "hooks": "./hooks/hook.json"
+}
