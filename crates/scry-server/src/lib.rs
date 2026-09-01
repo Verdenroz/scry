@@ -16,7 +16,7 @@ use axum::routing::{get, post};
 use axum::{Router, middleware};
 use scry_core::Result;
 use scry_core::chat::ChatClient;
-use scry_core::config::{Config, HydeMode, IndexConfig};
+use scry_core::config::{Config, HydeMode, IndexConfig, MemoryConfig};
 use scry_core::embed::{Embedder, HttpEmbedder};
 use scry_core::store::Store;
 
@@ -29,6 +29,7 @@ pub struct AppState {
     pub hyde: HydeMode,
     pub auth_token: Option<String>,
     pub index_config: IndexConfig,
+    pub memory_config: MemoryConfig,
 }
 
 impl AppState {
@@ -49,6 +50,7 @@ impl AppState {
             hyde: config.search.hyde,
             auth_token: config.server.auth_token.clone(),
             index_config: config.index.clone(),
+            memory_config: config.memory.clone(),
         }
     }
 }
@@ -59,6 +61,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/manifest", post(routes::manifest))
         .route("/v1/sync", post(routes::sync))
         .route("/v1/status", get(routes::status))
+        .route("/v1/memories/remember", post(routes::remember))
+        .route("/v1/memories/recall", post(routes::recall))
+        .route("/v1/memories/feedback", post(routes::feedback))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_bearer,

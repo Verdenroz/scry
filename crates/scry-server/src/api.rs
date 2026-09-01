@@ -80,6 +80,74 @@ pub struct StatusResponse {
     pub repos: i64,
     pub files: i64,
     pub chunks: i64,
+    pub memories: i64,
+    pub stale_memories: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RememberRequest {
+    pub repo_key: Option<String>,
+    pub kind: String,
+    pub content: String,
+    #[serde(default)]
+    pub pain: Option<f64>,
+    #[serde(default)]
+    pub cost: Option<f64>,
+    #[serde(default)]
+    pub anchors: Vec<AnchorDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnchorDto {
+    pub relpath: String,
+    #[serde(default)]
+    pub start_line: Option<u32>,
+    #[serde(default)]
+    pub end_line: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RememberResponse {
+    pub id: i64,
+    pub salience: f64,
+    pub surprise: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecallRequest {
+    pub repo_key: Option<String>,
+    pub query: String,
+    #[serde(default = "default_recall_limit")]
+    pub limit: usize,
+}
+
+fn default_recall_limit() -> usize {
+    5
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecallResponse {
+    pub memories: Vec<MemoryDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MemoryDto {
+    pub id: i64,
+    pub kind: String,
+    pub content: String,
+    pub score: f64,
+    pub stale: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FeedbackRequest {
+    pub id: i64,
+    pub helpful: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FeedbackResponse {
+    pub updated: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, anyhow};
 use scry_core::config::ClientConfig;
 use scry_server::api::{
-    ErrorResponse, ManifestRequest, ManifestResponse, SearchRequest, SearchResponse,
-    StatusResponse, SyncRequest, SyncResponse,
+    ErrorResponse, FeedbackRequest, FeedbackResponse, ManifestRequest, ManifestResponse,
+    RecallRequest, RecallResponse, RememberRequest, RememberResponse, SearchRequest,
+    SearchResponse, StatusResponse, SyncRequest, SyncResponse,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -66,6 +67,18 @@ impl ApiClient {
 
     pub async fn sync(&self, request: &SyncRequest) -> Result<SyncResponse> {
         self.post("/v1/sync", request).await
+    }
+
+    pub async fn remember(&self, request: &RememberRequest) -> Result<RememberResponse> {
+        self.post("/v1/memories/remember", request).await
+    }
+
+    pub async fn recall(&self, request: &RecallRequest) -> Result<RecallResponse> {
+        self.post("/v1/memories/recall", request).await
+    }
+
+    pub async fn feedback(&self, request: &FeedbackRequest) -> Result<FeedbackResponse> {
+        self.post("/v1/memories/feedback", request).await
     }
 
     pub async fn status(&self) -> Result<StatusResponse> {

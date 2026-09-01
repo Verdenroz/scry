@@ -4,9 +4,11 @@
 
 mod chunks;
 mod files;
+mod memories;
 
 pub use chunks::{ChunkRow, DenseHit, LexicalHit, NewChunk};
 pub use files::StoredFile;
+pub use memories::{MemoryAnchor, MemoryRow, NewMemory};
 
 use std::path::Path;
 use std::sync::Once;

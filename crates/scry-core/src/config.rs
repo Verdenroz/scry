@@ -25,6 +25,27 @@ pub struct Config {
     pub index: IndexConfig,
     #[serde(default)]
     pub search: SearchConfig,
+    #[serde(default)]
+    pub memory: MemoryConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryConfig {
+    #[serde(default = "default_half_life_days")]
+    pub half_life_days: f64,
+}
+
+fn default_half_life_days() -> f64 {
+    29.0
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            half_life_days: default_half_life_days(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

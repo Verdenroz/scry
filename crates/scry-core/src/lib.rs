@@ -7,6 +7,7 @@ pub mod embed;
 pub mod error;
 pub mod hashing;
 pub mod index;
+pub mod memory;
 pub mod repo;
 pub mod search;
 pub mod store;

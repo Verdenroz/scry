@@ -8,8 +8,13 @@ pub async fn run() -> Result<()> {
     let client = ApiClient::new(&config.client);
     let status = client.status().await?;
     println!(
-        "server {}: {} repos, {} files, {} chunks",
-        config.client.server_url, status.repos, status.files, status.chunks
+        "server {}: {} repos, {} files, {} chunks, {} memories ({} stale)",
+        config.client.server_url,
+        status.repos,
+        status.files,
+        status.chunks,
+        status.memories,
+        status.stale_memories
     );
     Ok(())
 }
