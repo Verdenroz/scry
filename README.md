@@ -9,12 +9,16 @@ code.
 ```
 scry "how are chunks defined"           # semantic search in the current repo
 scry "auth middleware" src/server       # scoped to a subdirectory
+scry --repo github.com/you/proj "query" # any indexed repo, from anywhere
 scry -a "how does sync decide what to upload"   # cited answer from a local LLM
 scry --web --answer "sqlite-vec quantization"   # web-grounded answer (Tavily)
 scry watch                              # keep the index in sync while you work
 scry remember "lesson learned" --kind lesson --pain 7 --anchor src/store.rs
 scry recall "why did we pick sqlite"    # memories about this codebase
 ```
+
+Outside a project (your home directory, say), `scry "query"` searches
+every indexed repo and prefixes each hit with its repo key.
 
 Docs: <https://verdenroz.github.io/scry/>
 
@@ -52,6 +56,7 @@ Docs: <https://verdenroz.github.io/scry/>
 cargo install --path crates/scry
 mkdir -p ~/.config/scry && cp deploy/config.example.toml ~/.config/scry/config.toml
 # edit: point [embedding] at your endpoint; add [chat]/[tavily] if wanted
+printf 'TAVILY_API_KEY=...\n' > ~/.config/scry/env && chmod 600 ~/.config/scry/env
 
 cp deploy/scry.service ~/.config/systemd/user/
 systemctl --user enable --now scry
@@ -60,6 +65,9 @@ loginctl enable-linger $USER      # start at boot without a login
 cd ~/projects/yourrepo && scry index
 scry "where is the retry logic"
 ```
+
+Secrets stay in `~/.config/scry/env` (loaded by the unit, referenced from
+the config as `"env:VAR"`), so `config.toml` is safe to keep in dotfiles.
 
 Other devices point `[client] server_url` (or `SCRY_SERVER_URL`) at the
 machine running `scry serve`, set the shared bearer token, and run
@@ -84,11 +92,13 @@ example) it stands down entirely and Claude keeps its builtin tools.
 | Command | Purpose |
 |---|---|
 | `scry "query" [path]` | semantic search; `-m N`, `-c` content, `-w` web, `-a` answer |
+| `scry --repo <key> "query"` | search one indexed repo from anywhere; no repo + no flag = all repos |
 | `scry serve` | run the index server |
 | `scry index` / `scry watch` | one-shot / continuous sync of the current repo |
 | `scry status` | repos, files, chunks, memories on the server |
 | `scry remember` / `recall` | write / retrieve memories (`--kind`, `--pain`, `--anchor`) |
 | `scry memory helpful\|noise <id>` | reinforce or demote a memory |
+| `scry repo prune <key> [--into <key>]` | drop an index; migrate or detach its memories |
 | `scry eval cases.toml` | Recall@10 / MRR against a golden query set |
 
 ## Development
