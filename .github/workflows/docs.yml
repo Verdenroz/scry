@@ -1,0 +1,42 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # callgrind fallback for PMU-less runners
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
+      - run: cargo install cargo-soothfast --locked
+      - run: cargo soothfast measure -p scry-core --save-baseline base
+      - run: cargo soothfast docs check
+      - run: cargo soothfast docs build --baseline base
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
