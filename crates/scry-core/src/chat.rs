@@ -36,15 +36,21 @@ impl ChatClient {
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
         );
+        let mut body = serde_json::json!({
+            "model": self.config.model,
+            "max_tokens": max_tokens,
+            "messages": [{ "role": "user", "content": prompt }],
+        });
+        if !self.config.thinking {
+            // llama.cpp switch for Qwen-style thinking models; a budget spent
+            // on reasoning_content leaves content empty. Others ignore it.
+            body["chat_template_kwargs"] = serde_json::json!({ "enable_thinking": false });
+        }
         let response = self
             .client
             .post(&url)
             .bearer_auth(&self.config.api_key)
-            .json(&serde_json::json!({
-                "model": self.config.model,
-                "max_tokens": max_tokens,
-                "messages": [{ "role": "user", "content": prompt }],
-            }))
+            .json(&body)
             .send()
             .await?
             .error_for_status()?;

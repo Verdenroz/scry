@@ -97,6 +97,8 @@ pub struct ChatConfig {
     #[serde(default = "default_embedding_key")]
     pub api_key: String,
     pub model: String,
+    #[serde(default)]
+    pub thinking: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
