@@ -23,6 +23,24 @@ pub struct Config {
     pub client: ClientConfig,
     #[serde(default)]
     pub index: IndexConfig,
+    #[serde(default)]
+    pub search: SearchConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SearchConfig {
+    #[serde(default)]
+    pub hyde: HydeMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HydeMode {
+    #[default]
+    Auto,
+    On,
+    Off,
 }
 
 #[derive(Debug, Clone, Deserialize)]

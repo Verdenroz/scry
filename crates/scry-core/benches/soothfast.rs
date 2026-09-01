@@ -45,3 +45,45 @@ fn bench_hash_bytes(input: &[u8]) {
 fn bench_normalize_remote_url(url: &str) {
     keep(scry_core::repo::normalize_remote_url(keep(url)));
 }
+
+/// Synthetic Rust source: n small functions plus a use block.
+#[fixture]
+fn rust_source_n(n: usize) -> String {
+    let mut source = String::from("use std::io;\n\n");
+    for i in 0..n {
+        source.push_str(&format!(
+            "fn handler_{i}(input: u32) -> u32 {{\n    input + {i}\n}}\n\n"
+        ));
+    }
+    source
+}
+
+#[fixture]
+fn symbol_table() -> Vec<String> {
+    (0..5000)
+        .map(|i| format!("Service{i} > handle_request_{i}"))
+        .collect()
+}
+
+#[bench(
+    group = "chunker",
+    setup_sized = rust_source_n,
+    sizes(64, 256, 1024),
+    complexity = "n",
+    covers = "scry_core::chunker::chunk_file"
+)]
+fn bench_chunk_rust(source: &str) {
+    keep(scry_core::chunker::chunk_file("bench.rs", keep(source)));
+}
+
+#[bench(
+    group = "search",
+    setup = symbol_table,
+    covers = "scry_core::search::expand_symbols"
+)]
+fn bench_expand_symbols(symbols: &[String]) {
+    keep(scry_core::search::expand_symbols(
+        keep(symbols),
+        "request handler service auth",
+    ));
+}
