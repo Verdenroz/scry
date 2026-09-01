@@ -151,6 +151,51 @@ pub struct FeedbackResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct WebSearchRequest {
+    pub query: String,
+    #[serde(default = "default_web_limit")]
+    pub limit: usize,
+}
+
+fn default_web_limit() -> usize {
+    5
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WebSearchResponse {
+    pub results: Vec<WebHit>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WebHit {
+    pub url: String,
+    pub title: String,
+    pub snippet: String,
+    pub score: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnswerRequest {
+    pub query: String,
+    #[serde(default)]
+    pub repo_key: Option<String>,
+    #[serde(default)]
+    pub web: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnswerResponse {
+    pub answer: String,
+    pub citations: Vec<Citation>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Citation {
+    pub n: usize,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub error: String,
 }

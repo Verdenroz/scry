@@ -6,6 +6,7 @@ mod auth;
 mod error;
 mod routes;
 mod store_actor;
+pub mod tavily;
 
 pub use store_actor::StoreHandle;
 
@@ -30,6 +31,7 @@ pub struct AppState {
     pub auth_token: Option<String>,
     pub index_config: IndexConfig,
     pub memory_config: MemoryConfig,
+    pub tavily: Option<tavily::TavilyClient>,
 }
 
 impl AppState {
@@ -51,6 +53,7 @@ impl AppState {
             auth_token: config.server.auth_token.clone(),
             index_config: config.index.clone(),
             memory_config: config.memory.clone(),
+            tavily: config.tavily.clone().map(tavily::TavilyClient::new),
         }
     }
 }
@@ -64,6 +67,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/memories/remember", post(routes::remember))
         .route("/v1/memories/recall", post(routes::recall))
         .route("/v1/memories/feedback", post(routes::feedback))
+        .route("/v1/web/search", post(routes::web_search))
+        .route("/v1/answer", post(routes::answer))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_bearer,

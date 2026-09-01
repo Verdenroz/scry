@@ -8,6 +8,7 @@ use crate::api::ErrorResponse;
 pub enum ApiError {
     NotFound(String),
     Unauthorized,
+    Unavailable(String),
     Internal(String),
 }
 
@@ -22,6 +23,7 @@ impl IntoResponse for ApiError {
         let (status, message) = match self {
             Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "invalid or missing token".into()),
+            Self::Unavailable(message) => (StatusCode::SERVICE_UNAVAILABLE, message),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
         };
         (status, Json(ErrorResponse { error: message })).into_response()
