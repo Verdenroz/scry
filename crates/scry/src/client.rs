@@ -18,7 +18,10 @@ pub struct ApiClient {
 impl ApiClient {
     pub fn new(config: &ClientConfig) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(600))
+                .build()
+                .expect("client build"),
             base_url: config.server_url.trim_end_matches('/').to_string(),
             token: config.token.clone(),
         }

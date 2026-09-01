@@ -26,7 +26,10 @@ struct ChatMessage {
 impl ChatClient {
     pub fn new(config: ChatConfig) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(180))
+                .build()
+                .expect("client build"),
             config,
         }
     }

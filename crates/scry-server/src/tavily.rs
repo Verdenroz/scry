@@ -23,7 +23,10 @@ struct TavilyResponse {
 impl TavilyClient {
     pub fn new(config: TavilyConfig) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("client build"),
             api_key: config.api_key,
         }
     }
