@@ -10,6 +10,10 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### ✨ Features
+
+- Soothfast changelog with release-notes wiring
+
 ### 📝 Documentation
 
 - Add CLAUDE.md
