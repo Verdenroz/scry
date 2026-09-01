@@ -31,12 +31,31 @@ pub fn print_hits(hits: &[Hit], repo_root: &Path, cwd: &Path, content: bool) {
     }
 }
 
+/// Cross-repo results have no local checkout to resolve against, so the
+/// path is prefixed with the repo key instead.
+pub fn print_global_hits(hits: &[Hit], content: bool) {
+    for hit in hits {
+        println!(
+            "{}/{}:{}-{} ({:.2}% match)",
+            hit.repo_key,
+            hit.relpath,
+            hit.start_line,
+            hit.end_line,
+            hit.score * 100.0
+        );
+        if content {
+            println!("{}\n", hit.content);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn hit(relpath: &str) -> Hit {
         Hit {
+            repo_key: "github.com/x/y".to_string(),
             relpath: relpath.to_string(),
             start_line: 10,
             end_line: 24,

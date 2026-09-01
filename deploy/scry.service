@@ -1,5 +1,8 @@
 # systemd user unit for a bare-metal install.
 # Install: cp scry.service ~/.config/systemd/user/ && systemctl --user enable --now scry
+# Then `loginctl enable-linger $USER` so it starts at boot without a login.
+# Secrets (TAVILY_API_KEY, SCRY_TOKEN) go in ~/.config/scry/env, chmod 600,
+# referenced from config.toml via "env:VAR"; the file stays out of dotfiles.
 [Unit]
 Description=scry semantic code search server
 After=network.target
@@ -8,6 +11,7 @@ After=network.target
 ExecStart=%h/.cargo/bin/scry serve
 Restart=on-failure
 Environment=RUST_LOG=info
+EnvironmentFile=-%h/.config/scry/env
 
 [Install]
 WantedBy=default.target

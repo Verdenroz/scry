@@ -5,8 +5,28 @@ use axum::extract::State;
 use scry_core::index::{FileMeta, commit_file, known_vectors, prepare_file};
 
 use crate::AppState;
-use crate::api::{ManifestEntry, ManifestRequest, ManifestResponse, SyncRequest, SyncResponse};
+use crate::api::{
+    ManifestEntry, ManifestRequest, ManifestResponse, PruneRequest, PruneResponse, SyncRequest,
+    SyncResponse,
+};
 use crate::error::ApiError;
+
+pub async fn prune(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<PruneRequest>,
+) -> Result<Json<PruneResponse>, ApiError> {
+    let deleted_files = state
+        .store
+        .call(move |store| {
+            let migrate_to = match &request.migrate_memories_to {
+                Some(key) => Some(store.upsert_repo(key)?),
+                None => None,
+            };
+            store.prune_repo(&request.repo_key, migrate_to)
+        })
+        .await?;
+    Ok(Json(PruneResponse { deleted_files }))
+}
 
 pub async fn manifest(
     State(state): State<Arc<AppState>>,

@@ -117,7 +117,7 @@ async fn auth_sync_search_roundtrip() {
         .post(format!("{base}/v1/search"))
         .bearer_auth(TOKEN)
         .json(&SearchRequest {
-            repo_key: REPO.to_string(),
+            repo_key: Some(REPO.to_string()),
             query: "load configuration".to_string(),
             limit: 5,
             path_prefix: None,
@@ -132,11 +132,30 @@ async fn auth_sync_search_roundtrip() {
         .unwrap();
     assert_eq!(search.hits[0].relpath, "src/config.rs");
 
+    let global: SearchResponse = http
+        .post(format!("{base}/v1/search"))
+        .bearer_auth(TOKEN)
+        .json(&SearchRequest {
+            repo_key: None,
+            query: "load configuration".to_string(),
+            limit: 5,
+            path_prefix: None,
+        })
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(global.hits[0].repo_key, REPO);
+
     let missing_repo = http
         .post(format!("{base}/v1/search"))
         .bearer_auth(TOKEN)
         .json(&SearchRequest {
-            repo_key: "github.com/none/none".to_string(),
+            repo_key: Some("github.com/none/none".to_string()),
             query: "x".to_string(),
             limit: 5,
             path_prefix: None,

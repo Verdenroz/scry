@@ -27,6 +27,8 @@ SEARCH OPTIONS:
   -c, --content         print matching chunk content
   -a, --answer          answer the query with cited sources
   -w, --web             include web results
+  --repo <key>          search a specific indexed repo from anywhere;
+                        outside a repo, all indexed repos are searched
 ";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -37,6 +39,7 @@ pub struct SearchArgs {
     pub content: bool,
     pub answer: bool,
     pub web: bool,
+    pub repo: Option<String>,
 }
 
 const VALUE_FLAGS: &[&str] = &["-m", "--max-count", "--max-file-size", "--max-file-count"];
@@ -45,12 +48,14 @@ pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut max_count = 10;
     let (mut content, mut answer, mut web) = (false, false, false);
+    let mut repo = None;
     let mut it = args.iter().peekable();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "-c" | "--content" => content = true,
             "-a" | "--answer" => answer = true,
             "-w" | "--web" => web = true,
+            "--repo" => repo = it.next().cloned(),
             "-m" | "--max-count" => {
                 if let Some(value) = it.next() {
                     max_count = value.parse().unwrap_or(max_count);
@@ -74,6 +79,7 @@ pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
         content,
         answer,
         web,
+        repo,
     })
 }
 
@@ -95,6 +101,7 @@ pub async fn dispatch(args: &[String]) -> Result<()> {
         Some("remember") => commands::memory::remember(&args[1..]).await,
         Some("recall") => commands::memory::recall(&args[1..]).await,
         Some("memory") => commands::memory::feedback(&args[1..]).await,
+        Some("repo") => commands::repo::run(&args[1..]).await,
         Some("login" | "logout") => {
             println!("scry is self-hosted; auth is a bearer token in the config (SCRY_TOKEN)");
             Ok(())

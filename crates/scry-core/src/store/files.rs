@@ -53,6 +53,47 @@ impl Store {
         Ok(id)
     }
 
+    /// Removes a repo's files, chunks, and vectors. Its memories move to
+    /// `migrate_to` when given (anchors included), else detach to global
+    /// scope with their anchors dropped.
+    pub fn prune_repo(&mut self, key: &str, migrate_to: Option<i64>) -> Result<usize> {
+        let Some(repo_id) = self.repo_id(key)? else {
+            return Ok(0);
+        };
+        let relpaths: Vec<String> = self
+            .list_files(repo_id)?
+            .into_iter()
+            .map(|f| f.relpath)
+            .collect();
+        let deleted = relpaths.len();
+        for relpath in &relpaths {
+            self.delete_file(repo_id, relpath)?;
+        }
+        match migrate_to {
+            Some(target) => {
+                self.conn.execute(
+                    "UPDATE memory_anchors SET repo_id = ?2 WHERE repo_id = ?1",
+                    rusqlite::params![repo_id, target],
+                )?;
+                self.conn.execute(
+                    "UPDATE memories SET repo_id = ?2 WHERE repo_id = ?1",
+                    rusqlite::params![repo_id, target],
+                )?;
+            }
+            None => {
+                self.conn
+                    .execute("DELETE FROM memory_anchors WHERE repo_id = ?1", [repo_id])?;
+                self.conn.execute(
+                    "UPDATE memories SET repo_id = NULL WHERE repo_id = ?1",
+                    [repo_id],
+                )?;
+            }
+        }
+        self.conn
+            .execute("DELETE FROM repos WHERE id = ?1", [repo_id])?;
+        Ok(deleted)
+    }
+
     pub fn delete_file(&mut self, repo_id: i64, relpath: &str) -> Result<()> {
         let tx = self.conn.transaction()?;
         let file_id: Option<i64> = tx

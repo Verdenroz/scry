@@ -39,7 +39,7 @@ pub async fn run(file: Option<&str>) -> Result<()> {
         let response = ctx
             .client
             .search(&SearchRequest {
-                repo_key: ctx.identity.key.clone(),
+                repo_key: Some(ctx.identity.key.clone()),
                 query: case.query.clone(),
                 limit: 10,
                 path_prefix: None,

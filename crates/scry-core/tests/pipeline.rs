@@ -51,7 +51,7 @@ async fn index_search_and_incremental_reindex() {
         &embedder,
         None,
         HydeMode::Off,
-        repo_id,
+        Some(repo_id),
         "how is the configuration file loaded",
         &options,
     )
@@ -113,7 +113,7 @@ async fn path_prefix_scopes_results() {
         &embedder,
         None,
         HydeMode::Off,
-        repo_id,
+        Some(repo_id),
         "send request retry delay",
         &options,
     )
@@ -146,7 +146,7 @@ async fn deleting_a_file_removes_its_hits() {
         &embedder,
         None,
         HydeMode::Off,
-        repo_id,
+        Some(repo_id),
         "send request retry delay",
         &SearchOptions {
             limit: 5,
@@ -156,4 +156,62 @@ async fn deleting_a_file_removes_its_hits() {
     .await
     .unwrap();
     assert!(hits.iter().all(|hit| hit.relpath != "src/net.rs"));
+}
+
+#[tokio::test]
+async fn global_search_spans_repos() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    fixture_repo(dir_a.path());
+    write(
+        dir_b.path(),
+        "src/billing.rs",
+        "pub fn calculate_invoice_total(items: &[u64]) -> u64 {\n    items.iter().sum()\n}\n",
+    );
+    let mut store = Store::open_in_memory("hash-test", 256).unwrap();
+    let embedder = HashEmbedder { dim: 256 };
+    let config = IndexConfig::default();
+    index_repo(&mut store, &embedder, REPO_KEY, dir_a.path(), &config)
+        .await
+        .unwrap();
+    index_repo(
+        &mut store,
+        &embedder,
+        "github.com/test/billing",
+        dir_b.path(),
+        &config,
+    )
+    .await
+    .unwrap();
+
+    let options = SearchOptions {
+        limit: 3,
+        path_prefix: None,
+    };
+    let hits = hybrid_search(
+        &store,
+        &embedder,
+        None,
+        HydeMode::Off,
+        None,
+        "calculate invoice total",
+        &options,
+    )
+    .await
+    .unwrap();
+    assert_eq!(hits[0].repo_key, "github.com/test/billing");
+    assert_eq!(hits[0].relpath, "src/billing.rs");
+
+    let hits = hybrid_search(
+        &store,
+        &embedder,
+        None,
+        HydeMode::Off,
+        None,
+        "how is the configuration file loaded",
+        &options,
+    )
+    .await
+    .unwrap();
+    assert_eq!(hits[0].repo_key, REPO_KEY);
 }

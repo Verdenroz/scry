@@ -27,6 +27,7 @@ pub struct SearchOptions {
 
 #[derive(Debug, Clone)]
 pub struct SearchHit {
+    pub repo_key: String,
     pub relpath: String,
     pub start_line: u32,
     pub end_line: u32,
@@ -207,7 +208,7 @@ pub async fn hybrid_search(
     embedder: &dyn Embedder,
     chat: Option<&ChatClient>,
     hyde: HydeMode,
-    repo_id: i64,
+    repo_id: Option<i64>,
     query: &str,
     options: &SearchOptions,
 ) -> Result<Vec<SearchHit>> {
@@ -216,10 +217,11 @@ pub async fn hybrid_search(
 }
 
 /// The synchronous half of retrieval; the query vector comes from
-/// [`query_vector`] so no await ever holds the store.
+/// [`query_vector`] so no await ever holds the store. `repo_id` None
+/// searches every indexed repo.
 pub fn search_with_vector(
     store: &Store,
-    repo_id: i64,
+    repo_id: Option<i64>,
     query: &str,
     vector: &[f32],
     options: &SearchOptions,
@@ -310,6 +312,7 @@ pub fn search_with_vector(
                 .copied()
                 .unwrap_or_else(|| floor * 0.95f64.powi(position as i32 + 1));
             SearchHit {
+                repo_key: row.repo_key,
                 relpath: row.relpath,
                 start_line: row.start_line,
                 end_line: row.end_line,

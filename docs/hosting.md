@@ -11,7 +11,13 @@ Bare metal is the simplest install:
 cargo install --path crates/scry
 cp deploy/scry.service ~/.config/systemd/user/
 systemctl --user enable --now scry
+loginctl enable-linger $USER    # start at boot, no login needed
 ```
+
+Secrets (`TAVILY_API_KEY`, `SCRY_TOKEN`) live in `~/.config/scry/env`
+(chmod 600), loaded by the unit's `EnvironmentFile` and referenced from
+`config.toml` as `"env:VAR"`. The config file is then safe to track in
+dotfiles; the env file never is.
 
 The default config expects an OpenAI-compatible embedding endpoint on
 `localhost:12434` (llama-swap, llama.cpp, Ollama). On a box without one,

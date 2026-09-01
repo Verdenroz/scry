@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchRequest {
-    pub repo_key: String,
+    /// None searches every indexed repo.
+    #[serde(default)]
+    pub repo_key: Option<String>,
     pub query: String,
     #[serde(default = "default_limit")]
     pub limit: usize,
@@ -23,6 +25,7 @@ pub struct SearchResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Hit {
+    pub repo_key: String,
     pub relpath: String,
     pub start_line: u32,
     pub end_line: u32,
@@ -148,6 +151,18 @@ pub struct FeedbackRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FeedbackResponse {
     pub updated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PruneRequest {
+    pub repo_key: String,
+    #[serde(default)]
+    pub migrate_memories_to: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PruneResponse {
+    pub deleted_files: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

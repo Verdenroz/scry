@@ -28,6 +28,7 @@ pub struct ChunkRow {
     pub symbol: Option<String>,
     pub content: String,
     pub file_mtime: i64,
+    pub repo_key: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -130,9 +131,15 @@ impl Store {
         Ok(())
     }
 
-    pub fn dense_search(&self, repo_id: i64, query: &[f32], k: usize) -> Result<Vec<DenseHit>> {
+    pub fn dense_search(
+        &self,
+        repo_id: Option<i64>,
+        query: &[f32],
+        k: usize,
+    ) -> Result<Vec<DenseHit>> {
         let chunk_count: i64 = self.conn.query_row(
-            "SELECT count(*) FROM chunks c JOIN files f ON f.id = c.file_id WHERE f.repo_id = ?1",
+            "SELECT count(*) FROM chunks c JOIN files f ON f.id = c.file_id
+             WHERE ?1 IS NULL OR f.repo_id = ?1",
             [repo_id],
             |row| row.get(0),
         )?;
@@ -143,38 +150,73 @@ impl Store {
         }
     }
 
-    fn dense_search_flat(&self, repo_id: i64, query: &[f32], k: usize) -> Result<Vec<DenseHit>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT chunk_id, distance FROM vec_chunks
-             WHERE embedding MATCH ?1 AND repo_id = ?2 AND k = ?3
-             ORDER BY distance",
-        )?;
-        let rows = stmt.query_map(params![vector_bytes(query), repo_id, k as i64], |row| {
+    fn dense_search_flat(
+        &self,
+        repo_id: Option<i64>,
+        query: &[f32],
+        k: usize,
+    ) -> Result<Vec<DenseHit>> {
+        // vec0 KNN cannot take an optional partition constraint in one
+        // statement; the filter must be present or absent in the SQL.
+        let sql = match repo_id {
+            Some(_) => {
+                "SELECT chunk_id, distance FROM vec_chunks
+                 WHERE embedding MATCH ?1 AND k = ?2 AND repo_id = ?3
+                 ORDER BY distance"
+            }
+            None => {
+                "SELECT chunk_id, distance FROM vec_chunks
+                 WHERE embedding MATCH ?1 AND k = ?2
+                 ORDER BY distance"
+            }
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let map = |row: &rusqlite::Row<'_>| {
             Ok(DenseHit {
                 chunk_id: row.get(0)?,
                 distance: row.get(1)?,
             })
-        })?;
+        };
+        let rows = match repo_id {
+            Some(repo_id) => {
+                stmt.query_map(params![vector_bytes(query), k as i64, repo_id], map)?
+            }
+            None => stmt.query_map(params![vector_bytes(query), k as i64], map)?,
+        };
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     fn dense_search_two_stage(
         &self,
-        repo_id: i64,
+        repo_id: Option<i64>,
         query: &[f32],
         k: usize,
     ) -> Result<Vec<DenseHit>> {
         let coarse_k = (k * COARSE_FACTOR).max(200);
-        let mut stmt = self.conn.prepare(
-            "SELECT chunk_id FROM vec_chunks_bit
-             WHERE embedding MATCH vec_quantize_binary(?1) AND repo_id = ?2 AND k = ?3",
-        )?;
-        let candidates: Vec<i64> = stmt
-            .query_map(
-                params![vector_bytes(query), repo_id, coarse_k as i64],
-                |row| row.get(0),
-            )?
-            .collect::<std::result::Result<_, _>>()?;
+        let sql = match repo_id {
+            Some(_) => {
+                "SELECT chunk_id FROM vec_chunks_bit
+                 WHERE embedding MATCH vec_quantize_binary(?1) AND k = ?2 AND repo_id = ?3"
+            }
+            None => {
+                "SELECT chunk_id FROM vec_chunks_bit
+                 WHERE embedding MATCH vec_quantize_binary(?1) AND k = ?2"
+            }
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let candidates: Vec<i64> = match repo_id {
+            Some(repo_id) => stmt
+                .query_map(
+                    params![vector_bytes(query), coarse_k as i64, repo_id],
+                    |row| row.get(0),
+                )?
+                .collect::<std::result::Result<_, _>>()?,
+            None => stmt
+                .query_map(params![vector_bytes(query), coarse_k as i64], |row| {
+                    row.get(0)
+                })?
+                .collect::<std::result::Result<_, _>>()?,
+        };
 
         let mut fetch = self
             .conn
@@ -196,7 +238,7 @@ impl Store {
 
     pub fn lexical_search(
         &self,
-        repo_id: i64,
+        repo_id: Option<i64>,
         fts_query: &str,
         k: usize,
         path_prefix: Option<&str>,
@@ -206,7 +248,7 @@ impl Store {
             "SELECT c.id, chunks_fts.rank FROM chunks_fts
              JOIN chunks c ON c.id = chunks_fts.rowid
              JOIN files f ON f.id = c.file_id
-             WHERE chunks_fts MATCH ?1 AND f.repo_id = ?2
+             WHERE chunks_fts MATCH ?1 AND (?2 IS NULL OR f.repo_id = ?2)
                AND (?3 IS NULL OR f.relpath LIKE ?3)
              ORDER BY chunks_fts.rank LIMIT ?4",
         )?;
@@ -224,8 +266,10 @@ impl Store {
 
     pub fn hydrate_chunks(&self, chunk_ids: &[i64]) -> Result<Vec<ChunkRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT c.id, f.relpath, c.start_line, c.end_line, c.symbol, c.content, f.mtime
-             FROM chunks c JOIN files f ON f.id = c.file_id
+            "SELECT c.id, f.relpath, c.start_line, c.end_line, c.symbol, c.content, f.mtime, r.key
+             FROM chunks c
+             JOIN files f ON f.id = c.file_id
+             JOIN repos r ON r.id = f.repo_id
              WHERE c.id = ?1",
         )?;
         let mut rows = Vec::with_capacity(chunk_ids.len());
@@ -239,6 +283,7 @@ impl Store {
                     symbol: row.get(4)?,
                     content: row.get(5)?,
                     file_mtime: row.get(6)?,
+                    repo_key: row.get(7)?,
                 })
             })?;
             rows.push(row);
@@ -246,11 +291,11 @@ impl Store {
         Ok(rows)
     }
 
-    pub fn symbols(&self, repo_id: i64) -> Result<Vec<String>> {
+    pub fn symbols(&self, repo_id: Option<i64>) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT c.symbol FROM chunks c
              JOIN files f ON f.id = c.file_id
-             WHERE f.repo_id = ?1 AND c.symbol IS NOT NULL",
+             WHERE (?1 IS NULL OR f.repo_id = ?1) AND c.symbol IS NOT NULL",
         )?;
         let rows = stmt.query_map([repo_id], |row| row.get(0))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)

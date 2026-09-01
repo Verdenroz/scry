@@ -48,7 +48,7 @@ pub async fn answer(
                     limit: LOCAL_SOURCES,
                     path_prefix: None,
                 };
-                search_with_vector(store, repo_id, &query, &vector, &options)
+                search_with_vector(store, Some(repo_id), &query, &vector, &options)
             })
             .await?;
         sources.extend(hits.into_iter().map(|hit| Source {

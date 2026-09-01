@@ -40,6 +40,8 @@ lessons, decisions, conventions) surface with `scry recall "query"`.
 
 - `scry "What code parsers are available?"` searches the current directory
 - `scry "How are chunks defined?" src/models` searches a subdirectory
+- `scry --repo github.com/user/proj "query"` searches another indexed repo;
+  outside any repo, `scry "query"` searches all indexed repos
 - `scry -m 10 "What is the maximum number of concurrent workers in the code parser?"` limits results
 - `scry --web --answer "How can I integrate the javascript runtime into deno"`
 

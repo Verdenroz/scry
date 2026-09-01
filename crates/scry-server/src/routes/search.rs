@@ -22,8 +22,12 @@ pub async fn search(
     let hits = state
         .store
         .call(move |store| {
-            let Some(repo_id) = store.repo_id(&request.repo_key)? else {
-                return Ok(None);
+            let repo_id = match &request.repo_key {
+                Some(key) => match store.repo_id(key)? {
+                    Some(id) => Some(id),
+                    None => return Ok(None),
+                },
+                None => None,
             };
             let options = SearchOptions {
                 limit: request.limit,
@@ -37,6 +41,7 @@ pub async fn search(
         hits: hits
             .into_iter()
             .map(|hit| Hit {
+                repo_key: hit.repo_key,
                 relpath: hit.relpath,
                 start_line: hit.start_line,
                 end_line: hit.end_line,

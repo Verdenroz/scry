@@ -1,12 +1,11 @@
 pub mod eval;
 pub mod index;
 pub mod memory;
+pub mod repo;
 pub mod search;
 pub mod serve;
 pub mod status;
 pub mod watch;
-
-use std::path::PathBuf;
 
 use anyhow::Result;
 use scry_core::config::Config;
@@ -18,7 +17,6 @@ pub struct RepoContext {
     pub config: Config,
     pub identity: RepoIdentity,
     pub client: ApiClient,
-    pub cwd: PathBuf,
 }
 
 /// True when `root` is the home directory or an ancestor of it; scry never
@@ -42,6 +40,5 @@ pub fn repo_context() -> Result<RepoContext> {
         config,
         identity,
         client,
-        cwd,
     })
 }

@@ -63,6 +63,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/search", post(routes::search))
         .route("/v1/manifest", post(routes::manifest))
         .route("/v1/sync", post(routes::sync))
+        .route("/v1/repos/prune", post(routes::prune))
         .route("/v1/status", get(routes::status))
         .route("/v1/memories/remember", post(routes::remember))
         .route("/v1/memories/recall", post(routes::recall))

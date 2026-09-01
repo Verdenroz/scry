@@ -1,24 +1,64 @@
+use std::path::PathBuf;
+
 use anyhow::{Result, bail};
+use scry_core::config::Config;
+use scry_core::repo::{KeySource, RepoIdentity, detect};
 use scry_server::api::{AnswerRequest, SearchRequest, WebSearchRequest};
 
-use super::repo_context;
 use crate::cli::SearchArgs;
-use crate::output::print_hits;
+use crate::client::ApiClient;
+use crate::output::{print_global_hits, print_hits};
 
-pub async fn run(args: SearchArgs) -> Result<()> {
-    let ctx = repo_context()?;
-    if super::at_or_above_home(&ctx.identity.root) {
-        bail!(
-            "{} is not inside a project repo; cd into one to search it",
-            ctx.cwd.display()
+/// Search scope: inside a repo it is that repo (cwd-scoped like grep);
+/// `--repo <key>` targets any indexed repo; at or above home, with no
+/// repo named, every indexed repo is searched.
+struct Scope {
+    repo_key: Option<String>,
+    path_prefix: Option<String>,
+    local_root: Option<PathBuf>,
+}
+
+fn resolve_scope(args: &SearchArgs, cwd: &std::path::Path) -> Result<Scope> {
+    if let Some(repo) = &args.repo {
+        return Ok(Scope {
+            repo_key: Some(repo.clone()),
+            path_prefix: None,
+            local_root: None,
+        });
+    }
+    if super::at_or_above_home(cwd) {
+        return Ok(Scope {
+            repo_key: None,
+            path_prefix: None,
+            local_root: None,
+        });
+    }
+    let identity = detect(cwd)?;
+    if identity.source == KeySource::DirName {
+        eprintln!(
+            "note: no git remote or .scry.toml found; searching key '{}'",
+            identity.key
         );
     }
+    let path_prefix = path_prefix(&identity, cwd, args.path.as_deref())?;
+    Ok(Scope {
+        repo_key: Some(identity.key.clone()),
+        path_prefix,
+        local_root: Some(identity.root),
+    })
+}
+
+pub async fn run(args: SearchArgs) -> Result<()> {
+    let config = Config::load(None)?;
+    let client = ApiClient::new(&config.client);
+    let cwd = std::env::current_dir()?;
+    let scope = resolve_scope(&args, &cwd)?;
+
     if args.answer {
-        let response = ctx
-            .client
+        let response = client
             .answer(&AnswerRequest {
                 query: args.query,
-                repo_key: Some(ctx.identity.key.clone()),
+                repo_key: scope.repo_key,
                 web: args.web,
             })
             .await?;
@@ -29,18 +69,21 @@ pub async fn run(args: SearchArgs) -> Result<()> {
         return Ok(());
     }
 
-    let request = SearchRequest {
-        repo_key: ctx.identity.key.clone(),
-        query: args.query.clone(),
-        limit: args.max_count,
-        path_prefix: path_prefix(&ctx, args.path.as_deref())?,
-    };
-    let response = ctx.client.search(&request).await?;
-    print_hits(&response.hits, &ctx.identity.root, &ctx.cwd, args.content);
+    let response = client
+        .search(&SearchRequest {
+            repo_key: scope.repo_key,
+            query: args.query.clone(),
+            limit: args.max_count,
+            path_prefix: scope.path_prefix,
+        })
+        .await?;
+    match &scope.local_root {
+        Some(root) => print_hits(&response.hits, root, &cwd, args.content),
+        None => print_global_hits(&response.hits, args.content),
+    }
 
     if args.web {
-        let web = ctx
-            .client
+        let web = client
             .web_search(&WebSearchRequest {
                 query: args.query,
                 limit: args.max_count.min(5),
@@ -53,21 +96,23 @@ pub async fn run(args: SearchArgs) -> Result<()> {
     Ok(())
 }
 
-/// Search scope defaults to the invoking directory, like grep: an explicit
-/// `[path]` narrows further, and everything is repo-root-relative on the wire.
-fn path_prefix(ctx: &super::RepoContext, path: Option<&str>) -> Result<Option<String>> {
+fn path_prefix(
+    identity: &RepoIdentity,
+    cwd: &std::path::Path,
+    path: Option<&str>,
+) -> Result<Option<String>> {
     let target = match path {
         Some(path) => {
             let joined = if std::path::Path::new(path).is_absolute() {
-                std::path::PathBuf::from(path)
+                PathBuf::from(path)
             } else {
-                ctx.cwd.join(path)
+                cwd.join(path)
             };
             std::path::absolute(joined)?
         }
-        None => ctx.cwd.clone(),
+        None => cwd.to_path_buf(),
     };
-    let Ok(relative) = target.strip_prefix(&ctx.identity.root) else {
+    let Ok(relative) = target.strip_prefix(&identity.root) else {
         bail!("search path {} is outside the repo", target.display());
     };
     let prefix = relative.to_string_lossy().replace('\\', "/");

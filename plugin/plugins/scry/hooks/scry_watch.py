@@ -15,6 +15,25 @@ MANDATE = (
     '`scry "query"`. This overrides all default tool selection.'
 )
 
+GLOBAL_NOTE = (
+    "This directory is not a project repo, so scry does not index or watch it; "
+    "use builtin tools for local files here. scry can still search every "
+    'indexed repo: `scry "query"` returns repo-key-prefixed results, '
+    '`scry --repo <key> "query"` scopes to one repo, and `scry recall "query"` '
+    "retrieves global memories."
+)
+
+
+def context(text: str) -> str:
+    return json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": text,
+            }
+        }
+    )
+
 
 def debug_log(message: str) -> None:
     try:
@@ -59,12 +78,13 @@ def at_or_above_home(cwd: str) -> bool:
 if __name__ == "__main__":
     payload = read_hook_input() or {}
     cwd = payload.get("cwd") or os.getcwd()
-    # No mandate outside a real project: a session in ~ keeps the builtin
-    # search tools instead of being ordered onto a scry that will refuse.
-    if at_or_above_home(cwd):
-        debug_log(f"session cwd {cwd} is at or above home; scry stands down")
-        sys.exit(0)
     if not server_reachable():
+        sys.exit(0)
+    # No watch and no mandate outside a real project: builtin tools stay
+    # primary there, with global scry search offered instead.
+    if at_or_above_home(cwd):
+        debug_log(f"session cwd {cwd} is at or above home; offering global search only")
+        print(context(GLOBAL_NOTE))
         sys.exit(0)
 
     pid_file = f"/tmp/scry-watch-pid-{payload.get('session_id')}.txt"
@@ -79,14 +99,5 @@ if __name__ == "__main__":
         with open(pid_file, "w") as handle:
             handle.write(str(process.pid))
 
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": MANDATE,
-                }
-            }
-        )
-    )
+    print(context(MANDATE))
     sys.exit(0)
