@@ -21,6 +21,12 @@ pub struct RepoContext {
     pub cwd: PathBuf,
 }
 
+/// True when `root` is the home directory or an ancestor of it; scry never
+/// treats such a directory as a project repo.
+pub fn at_or_above_home(root: &std::path::Path) -> bool {
+    std::env::var_os("HOME").is_some_and(|home| std::path::Path::new(&home).starts_with(root))
+}
+
 pub fn repo_context() -> Result<RepoContext> {
     let config = Config::load(None)?;
     let cwd = std::env::current_dir()?;

@@ -47,8 +47,23 @@ def server_reachable() -> bool:
         return False
 
 
+def at_or_above_home(cwd: str) -> bool:
+    home = Path.home().resolve()
+    try:
+        cwd = Path(cwd).resolve()
+    except Exception:
+        return True
+    return home == cwd or cwd in home.parents
+
+
 if __name__ == "__main__":
     payload = read_hook_input() or {}
+    cwd = payload.get("cwd") or os.getcwd()
+    # No mandate outside a real project: a session in ~ keeps the builtin
+    # search tools instead of being ordered onto a scry that will refuse.
+    if at_or_above_home(cwd):
+        debug_log(f"session cwd {cwd} is at or above home; scry stands down")
+        sys.exit(0)
     if not server_reachable():
         sys.exit(0)
 

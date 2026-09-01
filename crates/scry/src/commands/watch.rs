@@ -8,9 +8,7 @@ use super::{index::sync_repo, repo_context};
 
 pub async fn run() -> Result<()> {
     let ctx = repo_context()?;
-    if let Some(home) = std::env::var_os("HOME")
-        && std::path::Path::new(&home).starts_with(&ctx.identity.root)
-    {
+    if super::at_or_above_home(&ctx.identity.root) {
         bail!(
             "refusing to watch {} (at or above your home directory)",
             ctx.identity.root.display()

@@ -7,6 +7,12 @@ use crate::output::print_hits;
 
 pub async fn run(args: SearchArgs) -> Result<()> {
     let ctx = repo_context()?;
+    if super::at_or_above_home(&ctx.identity.root) {
+        bail!(
+            "{} is not inside a project repo; cd into one to search it",
+            ctx.cwd.display()
+        );
+    }
     if args.answer {
         let response = ctx
             .client

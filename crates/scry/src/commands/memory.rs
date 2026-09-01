@@ -36,10 +36,11 @@ pub async fn remember(args: &[String]) -> Result<()> {
     };
 
     let ctx = repo_context()?;
+    let scoped = !global && !super::at_or_above_home(&ctx.identity.root);
     let response = ctx
         .client
         .remember(&RememberRequest {
-            repo_key: (!global).then(|| ctx.identity.key.clone()),
+            repo_key: scoped.then(|| ctx.identity.key.clone()),
             kind,
             content,
             pain,
@@ -95,10 +96,11 @@ pub async fn recall(args: &[String]) -> Result<()> {
     };
 
     let ctx = repo_context()?;
+    let scoped = !super::at_or_above_home(&ctx.identity.root);
     let response = ctx
         .client
         .recall(&RecallRequest {
-            repo_key: Some(ctx.identity.key.clone()),
+            repo_key: scoped.then(|| ctx.identity.key.clone()),
             query,
             limit,
         })

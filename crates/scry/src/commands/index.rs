@@ -13,6 +13,12 @@ const BATCH_BYTES: usize = 2 * 1024 * 1024;
 
 pub async fn run() -> Result<()> {
     let ctx = repo_context()?;
+    if super::at_or_above_home(&ctx.identity.root) {
+        bail!(
+            "refusing to index {} (at or above your home directory); cd into a project repo",
+            ctx.identity.root.display()
+        );
+    }
     let outcome = sync_repo(&ctx).await?;
     println!(
         "indexed {} files ({} embedded, {} reused chunks), deleted {}, unchanged {}",
