@@ -6,5 +6,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+notify = "8.2.0"
+notify-debouncer-mini = "0.7.0"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 scry-core.workspace = true
 scry-server.workspace = true
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+toml = "1.1.4"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

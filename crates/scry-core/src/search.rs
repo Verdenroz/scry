@@ -136,13 +136,13 @@ pub fn fts_query(query: &str, expansions: &[String]) -> String {
     terms.join(" OR ")
 }
 
-async fn query_vector(
+pub async fn query_vector(
     embedder: &dyn Embedder,
     chat: Option<&ChatClient>,
     hyde: HydeMode,
-    route: Route,
     query: &str,
 ) -> Result<Vec<f32>> {
+    let route = route_query(query);
     let use_hyde = match hyde {
         HydeMode::Off => false,
         HydeMode::On => chat.is_some(),
@@ -211,6 +211,19 @@ pub async fn hybrid_search(
     query: &str,
     options: &SearchOptions,
 ) -> Result<Vec<SearchHit>> {
+    let vector = query_vector(embedder, chat, hyde, query).await?;
+    search_with_vector(store, repo_id, query, &vector, options)
+}
+
+/// The synchronous half of retrieval; the query vector comes from
+/// [`query_vector`] so no await ever holds the store.
+pub fn search_with_vector(
+    store: &Store,
+    repo_id: i64,
+    query: &str,
+    vector: &[f32],
+    options: &SearchOptions,
+) -> Result<Vec<SearchHit>> {
     let route = route_query(query);
     let limit = options.limit.max(1);
     let fetch = if options.path_prefix.is_some() {
@@ -219,8 +232,7 @@ pub async fn hybrid_search(
         CANDIDATES
     };
 
-    let vector = query_vector(embedder, chat, hyde, route, query).await?;
-    let dense = store.dense_search(repo_id, &vector, fetch)?;
+    let dense = store.dense_search(repo_id, vector, fetch)?;
 
     let expansions = expand_symbols(&store.symbols(repo_id)?, query);
     let fts = fts_query(query, &expansions);
