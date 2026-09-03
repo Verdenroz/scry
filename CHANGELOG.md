@@ -17,6 +17,7 @@
 
 ### 🐛 Fixes
 
+- Embed timeout and batch size for busy endpoints
 - Timeouts on every outbound HTTP client
 
 ### 📝 Documentation
