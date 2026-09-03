@@ -150,7 +150,7 @@ fn default_dim() -> usize {
 }
 
 fn default_batch_size() -> usize {
-    32
+    8
 }
 
 fn default_server_url() -> String {

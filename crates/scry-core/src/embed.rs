@@ -30,7 +30,7 @@ impl HttpEmbedder {
     pub fn new(config: EmbeddingConfig) -> Self {
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_secs(600))
                 .build()
                 .expect("client build"),
             config,
