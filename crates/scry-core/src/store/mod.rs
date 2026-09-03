@@ -85,10 +85,11 @@ impl Store {
             ))?;
             conn.execute(
                 "INSERT INTO meta (key, value) VALUES
-                 ('schema_version', '1'), ('embedding_model', ?1), ('embedding_dim', ?2)",
+                 ('schema_version', '2'), ('embedding_model', ?1), ('embedding_dim', ?2)",
                 rusqlite::params![embedding_model, dim.to_string()],
             )?;
         }
+        migrate(&conn)?;
 
         let store = Self { conn };
         store.guard_meta("embedding_model", embedding_model)?;
@@ -150,6 +151,43 @@ impl Store {
     }
 }
 
+/// v1 -> v2: the FTS index gains a relpath column so path words rank in
+/// BM25; rebuilt in place from chunks + files, vectors untouched.
+fn migrate(conn: &Connection) -> Result<()> {
+    let version: String = conn.query_row(
+        "SELECT value FROM meta WHERE key = 'schema_version'",
+        [],
+        |row| row.get(0),
+    )?;
+    if version != "1" {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "BEGIN;
+         DROP TRIGGER IF EXISTS chunks_ai;
+         DROP TRIGGER IF EXISTS chunks_ad;
+         DROP TABLE IF EXISTS chunks_fts;
+         CREATE VIRTUAL TABLE chunks_fts USING fts5(
+             content, symbol, relpath,
+             content='', contentless_delete=1
+         );
+         CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+             INSERT INTO chunks_fts(rowid, content, symbol, relpath)
+             VALUES (new.id, new.content, new.symbol,
+                     (SELECT relpath FROM files WHERE id = new.file_id));
+         END;
+         CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
+             DELETE FROM chunks_fts WHERE rowid = old.id;
+         END;
+         INSERT INTO chunks_fts(rowid, content, symbol, relpath)
+             SELECT c.id, c.content, c.symbol, f.relpath
+             FROM chunks c JOIN files f ON f.id = c.file_id;
+         UPDATE meta SET value = '2' WHERE key = 'schema_version';
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
 pub(crate) fn vector_bytes(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
@@ -175,6 +213,57 @@ mod tests {
         Store::open(&path, "model-a", 4).unwrap();
         let err = Store::open(&path, "model-b", 4).err().unwrap();
         assert!(err.to_string().contains("embedding_model"));
+    }
+
+    #[test]
+    fn migrates_v1_fts_to_path_aware_v2() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.db");
+        {
+            let mut store = Store::open(&path, "m", 8).unwrap();
+            let repo_id = store.upsert_repo("github.com/x/y").unwrap();
+            let file_id = store
+                .upsert_file(repo_id, "src/domains/crypto.rs", "abcd", 4, 0)
+                .unwrap();
+            store
+                .replace_file_chunks(
+                    file_id,
+                    repo_id,
+                    &[crate::store::NewChunk {
+                        start_line: 1,
+                        end_line: 2,
+                        symbol: Some("get_quotes".to_string()),
+                        content: "pub fn get_quotes() {}".to_string(),
+                        content_hash: "h1".to_string(),
+                        embedding: vec![0.1; 8],
+                    }],
+                )
+                .unwrap();
+            store
+                .conn
+                .execute_batch(
+                    "DROP TRIGGER chunks_ai; DROP TRIGGER chunks_ad;
+                     DROP TABLE chunks_fts;
+                     CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                         content, symbol, content='chunks', content_rowid='id');
+                     INSERT INTO chunks_fts(rowid, content, symbol)
+                         SELECT id, content, symbol FROM chunks;
+                     UPDATE meta SET value = '1' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let store = Store::open(&path, "m", 8).unwrap();
+        let version: String = store
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "2");
+        let hits = store.lexical_search(None, "\"domains\"", 5, None).unwrap();
+        assert_eq!(hits.len(), 1);
     }
 
     #[test]

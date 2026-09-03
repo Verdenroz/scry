@@ -27,17 +27,19 @@ CREATE TABLE chunks (
 CREATE INDEX chunks_by_file ON chunks(file_id);
 CREATE INDEX chunks_by_hash ON chunks(content_hash);
 
+-- Contentless-delete is not used; relpath comes from files at trigger time
+-- so path words rank in BM25 alongside content and symbols.
 CREATE VIRTUAL TABLE chunks_fts USING fts5(
-    content, symbol,
-    content='chunks', content_rowid='id'
+    content, symbol, relpath,
+    content='', contentless_delete=1
 );
 CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
-    INSERT INTO chunks_fts(rowid, content, symbol)
-    VALUES (new.id, new.content, new.symbol);
+    INSERT INTO chunks_fts(rowid, content, symbol, relpath)
+    VALUES (new.id, new.content, new.symbol,
+            (SELECT relpath FROM files WHERE id = new.file_id));
 END;
 CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, content, symbol)
-    VALUES ('delete', old.id, old.content, old.symbol);
+    DELETE FROM chunks_fts WHERE rowid = old.id;
 END;
 
 CREATE TABLE memories (

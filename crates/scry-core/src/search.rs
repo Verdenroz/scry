@@ -95,10 +95,20 @@ fn subtokens(identifier: &str) -> Vec<String> {
     parts
 }
 
+/// Either side being a >= 4 char prefix of the other counts, so
+/// "cryptocurrency" reaches `crypto` and "domain" reaches `domains`.
+fn tokens_match(wanted: &str, subtoken: &str) -> bool {
+    if wanted == subtoken {
+        return true;
+    }
+    let stem = wanted.len().min(subtoken.len());
+    stem >= 4 && (wanted.starts_with(subtoken) || subtoken.starts_with(wanted))
+}
+
 /// Repo identifiers whose subtokens match a query token, e.g. query
 /// "auth" pulls in `AuthLayer` and `require_auth` for the lexical leg.
 pub fn expand_symbols(symbols: &[String], query: &str) -> Vec<String> {
-    let wanted: HashSet<String> = query_tokens(query)
+    let wanted: Vec<String> = query_tokens(query)
         .iter()
         .filter(|t| t.len() >= 3)
         .map(|t| t.to_lowercase())
@@ -111,7 +121,11 @@ pub fn expand_symbols(symbols: &[String], query: &str) -> Vec<String> {
             if wanted.contains(&lower) || seen.contains(&lower) {
                 continue;
             }
-            if subtokens(identifier).iter().any(|sub| wanted.contains(sub)) {
+            let subs = subtokens(identifier);
+            if wanted
+                .iter()
+                .any(|w| subs.iter().any(|sub| tokens_match(w, sub)))
+            {
                 seen.insert(lower);
                 expansions.push(identifier.to_string());
                 if expansions.len() >= MAX_SYMBOL_EXPANSIONS {
@@ -123,11 +137,20 @@ pub fn expand_symbols(symbols: &[String], query: &str) -> Vec<String> {
     expansions
 }
 
+/// Tokens of >= 4 chars become FTS prefix terms so "domain" also matches
+/// "domains" in path and content.
 pub fn fts_query(query: &str, expansions: &[String]) -> String {
     let mut terms: Vec<String> = query_tokens(query)
         .iter()
         .take(12)
-        .map(|t| format!("\"{}\"", t.replace('"', "")))
+        .map(|t| {
+            let quoted = format!("\"{}\"", t.replace('"', ""));
+            if t.len() >= 4 {
+                format!("{quoted}*")
+            } else {
+                quoted
+            }
+        })
         .collect();
     terms.extend(
         expansions
@@ -362,8 +385,17 @@ mod tests {
     }
 
     #[test]
-    fn fts_query_quotes_and_ors() {
-        let q = fts_query("auth flow", &["AuthLayer".to_string()]);
-        assert_eq!(q, "\"auth\" OR \"flow\" OR \"AuthLayer\"");
+    fn fts_query_quotes_prefixes_and_ors() {
+        let q = fts_query("auth is flow", &["AuthLayer".to_string()]);
+        assert_eq!(q, "\"auth\"* OR \"is\" OR \"flow\"* OR \"AuthLayer\"");
+    }
+
+    #[test]
+    fn expansion_matches_prefixes_both_ways() {
+        let symbols = vec!["get_crypto_quotes".to_string(), "domains".to_string()];
+        let expansions = expand_symbols(&symbols, "cryptocurrency domain prices");
+        assert!(expansions.contains(&"get_crypto_quotes".to_string()));
+        assert!(expansions.contains(&"domains".to_string()));
+        assert!(expand_symbols(&symbols, "cry dom").is_empty());
     }
 }

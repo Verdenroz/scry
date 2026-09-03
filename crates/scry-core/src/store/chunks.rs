@@ -245,12 +245,12 @@ impl Store {
     ) -> Result<Vec<LexicalHit>> {
         let prefix_pattern = path_prefix.map(|p| format!("{}%", p.trim_end_matches('/')));
         let mut stmt = self.conn.prepare(
-            "SELECT c.id, chunks_fts.rank FROM chunks_fts
+            "SELECT c.id, bm25(chunks_fts, 1.0, 2.0, 2.5) AS score FROM chunks_fts
              JOIN chunks c ON c.id = chunks_fts.rowid
              JOIN files f ON f.id = c.file_id
              WHERE chunks_fts MATCH ?1 AND (?2 IS NULL OR f.repo_id = ?2)
                AND (?3 IS NULL OR f.relpath LIKE ?3)
-             ORDER BY chunks_fts.rank LIMIT ?4",
+             ORDER BY score LIMIT ?4",
         )?;
         let rows = stmt.query_map(
             params![fts_query, repo_id, prefix_pattern, k as i64],
