@@ -12,6 +12,7 @@
 
 ### ✨ Features
 
+- Path-aware BM25 and prefix-tolerant expansion
 - Memory write discipline in session context
 - Soothfast changelog with release-notes wiring
 
@@ -23,6 +24,23 @@
 ### 📝 Documentation
 
 - Add CLAUDE.md
+
+---
+
+### 🔍 API surface
+
+```
+# scry-core
+CHANGED  scry_core::search::expand_symbols (body)
+CHANGED  scry_core::search::fts_query (body)
+```
+
+### 📊 Gate movement
+
+| item | metric | was | now | delta |
+|---|---|---:|---:|---:|
+| `scry_core::bench_expand_symbols` | instructions | 59001.0 | 29674.0 | -49.7% |
+| `scry_core::bench_expand_symbols` | allocs | 88.0 | 55.0 | -37.5% |
 
 
 ## 0.1.0 - 2026-09-01
