@@ -29,6 +29,11 @@ Hashing file content for the sync diff allocates nothing.
 Deriving a repo key from a remote URL costs at most five allocations.
 <!-- /soothfast:claim -->
 
+<!-- soothfast:claim scry_core::bench_dense_search.alloc.allocs <= 512 -->
+A dense query over 16k chunks allocates fewer than 512 times in total:
+neither the exact scan nor the coarse rescore allocates per row.
+<!-- /soothfast:claim -->
+
 Retrieval quality is measured with `scry eval <cases.toml>`: a golden set
 of queries with expected `path` or `path:line` answers, reported as
 Recall@10 and MRR. Run it before and after touching anything in the
