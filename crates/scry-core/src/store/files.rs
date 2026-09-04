@@ -111,12 +111,17 @@ impl Store {
             return Ok(());
         };
         tx.execute(
-            "DELETE FROM vec_chunks WHERE chunk_id IN
+            "UPDATE repos SET chunk_count = chunk_count -
+             (SELECT count(*) FROM chunks WHERE file_id = ?2) WHERE id = ?1",
+            params![repo_id, file_id],
+        )?;
+        tx.execute(
+            "DELETE FROM vec_chunks_bit WHERE chunk_id IN
              (SELECT id FROM chunks WHERE file_id = ?1)",
             [file_id],
         )?;
         tx.execute(
-            "DELETE FROM vec_chunks_bit WHERE chunk_id IN
+            "DELETE FROM chunk_vectors WHERE chunk_id IN
              (SELECT id FROM chunks WHERE file_id = ?1)",
             [file_id],
         )?;

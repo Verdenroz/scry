@@ -54,6 +54,19 @@ fn bytes_to_vector(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+fn cosine_distance(a: &[f32], b: &[f32]) -> f64 {
+    let (mut dot, mut na, mut nb) = (0f64, 0f64, 0f64);
+    for (x, y) in a.iter().zip(b) {
+        dot += f64::from(*x) * f64::from(*y);
+        na += f64::from(*x) * f64::from(*x);
+        nb += f64::from(*y) * f64::from(*y);
+    }
+    if na == 0.0 || nb == 0.0 {
+        return 1.0;
+    }
+    1.0 - dot / (na.sqrt() * nb.sqrt())
+}
+
 fn json_id_list(ids: &[i64]) -> String {
     let inner: Vec<String> = ids.iter().map(i64::to_string).collect();
     format!("[{}]", inner.join(","))
@@ -64,7 +77,7 @@ impl Store {
         let bytes: Option<Vec<u8>> = self
             .conn
             .query_row(
-                "SELECT v.embedding FROM vec_chunks v
+                "SELECT v.embedding FROM chunk_vectors v
                  JOIN chunks c ON c.id = v.chunk_id
                  WHERE c.content_hash = ?1 LIMIT 1",
                 [content_hash],
@@ -86,12 +99,17 @@ impl Store {
     ) -> Result<()> {
         let tx = self.conn.transaction()?;
         tx.execute(
-            "DELETE FROM vec_chunks WHERE chunk_id IN
+            "UPDATE repos SET chunk_count = chunk_count + ?3 -
+             (SELECT count(*) FROM chunks WHERE file_id = ?2) WHERE id = ?1",
+            params![repo_id, file_id, chunks.len() as i64],
+        )?;
+        tx.execute(
+            "DELETE FROM vec_chunks_bit WHERE chunk_id IN
              (SELECT id FROM chunks WHERE file_id = ?1)",
             [file_id],
         )?;
         tx.execute(
-            "DELETE FROM vec_chunks_bit WHERE chunk_id IN
+            "DELETE FROM chunk_vectors WHERE chunk_id IN
              (SELECT id FROM chunks WHERE file_id = ?1)",
             [file_id],
         )?;
@@ -112,13 +130,13 @@ impl Store {
             let chunk_id = tx.last_insert_rowid();
             let bytes = vector_bytes(&chunk.embedding);
             tx.execute(
-                "INSERT INTO vec_chunks (chunk_id, repo_id, embedding) VALUES (?1, ?2, ?3)",
-                params![chunk_id, repo_id, bytes],
-            )?;
-            tx.execute(
                 "INSERT INTO vec_chunks_bit (chunk_id, repo_id, embedding)
                  VALUES (?1, ?2, vec_quantize_binary(?3))",
                 params![chunk_id, repo_id, bytes],
+            )?;
+            tx.execute(
+                "INSERT INTO chunk_vectors (chunk_id, embedding) VALUES (?1, ?2)",
+                params![chunk_id, bytes],
             )?;
         }
         tx.commit()?;
@@ -132,8 +150,7 @@ impl Store {
         k: usize,
     ) -> Result<Vec<DenseHit>> {
         let chunk_count: i64 = self.conn.query_row(
-            "SELECT count(*) FROM chunks c JOIN files f ON f.id = c.file_id
-             WHERE ?1 IS NULL OR f.repo_id = ?1",
+            "SELECT coalesce(sum(chunk_count), 0) FROM repos WHERE ?1 IS NULL OR id = ?1",
             [repo_id],
             |row| row.get(0),
         )?;
@@ -142,42 +159,6 @@ impl Store {
         } else {
             self.dense_search_exact(repo_id, query, k)
         }
-    }
-
-    pub fn dense_search_exact(
-        &self,
-        repo_id: Option<i64>,
-        query: &[f32],
-        k: usize,
-    ) -> Result<Vec<DenseHit>> {
-        // vec0 KNN cannot take an optional partition constraint in one
-        // statement; the filter must be present or absent in the SQL.
-        let sql = match repo_id {
-            Some(_) => {
-                "SELECT chunk_id, distance FROM vec_chunks
-                 WHERE embedding MATCH ?1 AND k = ?2 AND repo_id = ?3
-                 ORDER BY distance"
-            }
-            None => {
-                "SELECT chunk_id, distance FROM vec_chunks
-                 WHERE embedding MATCH ?1 AND k = ?2
-                 ORDER BY distance"
-            }
-        };
-        let mut stmt = self.conn.prepare(sql)?;
-        let map = |row: &rusqlite::Row<'_>| {
-            Ok(DenseHit {
-                chunk_id: row.get(0)?,
-                distance: row.get(1)?,
-            })
-        };
-        let rows = match repo_id {
-            Some(repo_id) => {
-                stmt.query_map(params![vector_bytes(query), k as i64, repo_id], map)?
-            }
-            None => stmt.query_map(params![vector_bytes(query), k as i64], map)?,
-        };
-        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     /// Hamming pass over `vec_chunks_bit` keeps `coarse_k` candidates,
@@ -214,20 +195,49 @@ impl Store {
                 .collect::<std::result::Result<_, _>>()?,
         };
 
-        let ids = json_id_list(&candidates);
         let mut rescore = self.conn.prepare(
-            "SELECT chunk_id, distance FROM vec_chunks
-             WHERE embedding MATCH ?1 AND k = ?2
-               AND chunk_id IN (SELECT value FROM json_each(?3))
-             ORDER BY distance",
+            "SELECT chunk_id, embedding FROM chunk_vectors
+             WHERE chunk_id IN (SELECT value FROM json_each(?1))",
         )?;
-        let rows = rescore.query_map(params![vector_bytes(query), k as i64, ids], |row| {
-            Ok(DenseHit {
-                chunk_id: row.get(0)?,
-                distance: row.get(1)?,
-            })
-        })?;
-        Ok(rows.collect::<std::result::Result<_, _>>()?)
+        let mut hits: Vec<DenseHit> = rescore
+            .query_map([json_id_list(&candidates)], |row| {
+                let bytes: Vec<u8> = row.get(1)?;
+                Ok(DenseHit {
+                    chunk_id: row.get(0)?,
+                    distance: cosine_distance(query, &bytes_to_vector(&bytes)),
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        hits.truncate(k);
+        Ok(hits)
+    }
+
+    /// Exact cosine KNN as a scan over the plain float table.
+    pub fn dense_search_exact(
+        &self,
+        repo_id: Option<i64>,
+        query: &[f32],
+        k: usize,
+    ) -> Result<Vec<DenseHit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT v.chunk_id, v.embedding FROM chunk_vectors v
+             JOIN chunks c ON c.id = v.chunk_id
+             JOIN files f ON f.id = c.file_id
+             WHERE ?1 IS NULL OR f.repo_id = ?1",
+        )?;
+        let mut hits: Vec<DenseHit> = stmt
+            .query_map([repo_id], |row| {
+                let bytes: Vec<u8> = row.get(1)?;
+                Ok(DenseHit {
+                    chunk_id: row.get(0)?,
+                    distance: cosine_distance(query, &bytes_to_vector(&bytes)),
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        hits.truncate(k);
+        Ok(hits)
     }
 
     pub fn sample_chunk_vectors(
@@ -236,7 +246,7 @@ impl Store {
         n: usize,
     ) -> Result<Vec<(i64, Vec<f32>)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT v.chunk_id, v.embedding FROM vec_chunks v
+            "SELECT v.chunk_id, v.embedding FROM chunk_vectors v
              JOIN chunks c ON c.id = v.chunk_id
              JOIN files f ON f.id = c.file_id
              WHERE ?1 IS NULL OR f.repo_id = ?1
