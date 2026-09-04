@@ -7,7 +7,7 @@ use serde::Deserialize;
 use super::repo_context;
 use crate::client::ApiClient;
 
-const USAGE: &str = "usage: scry eval <cases.toml> [--runs N]";
+const USAGE: &str = "usage: scry eval <cases.toml> [--runs N] [--limit N]";
 
 #[derive(Deserialize)]
 struct EvalFile {
@@ -50,29 +50,45 @@ fn matches(hit: &Hit, expectation: &str) -> bool {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(String, usize)> {
+struct Args {
+    file: String,
+    runs: usize,
+    limit: usize,
+}
+
+fn parse_args(args: &[String]) -> Result<Args> {
     let mut file = None;
-    let mut runs = 1;
+    let (mut runs, mut limit) = (1, 10);
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--runs" => runs = it.next().and_then(|v| v.parse().ok()).unwrap_or(runs),
+            "--limit" => limit = it.next().and_then(|v| v.parse().ok()).unwrap_or(limit),
             _ => file = Some(arg.clone()),
         }
     }
     let Some(file) = file else {
         bail!("{USAGE}");
     };
-    Ok((file, runs.max(1)))
+    Ok(Args {
+        file,
+        runs: runs.max(1),
+        limit: limit.max(1),
+    })
 }
 
-async fn search_case(client: &ApiClient, repo_key: &str, case: &EvalCase) -> Result<CaseResult> {
+async fn search_case(
+    client: &ApiClient,
+    repo_key: &str,
+    case: &EvalCase,
+    limit: usize,
+) -> Result<CaseResult> {
     let started = Instant::now();
     let response = client
         .search(&SearchRequest {
             repo_key: Some(repo_key.to_string()),
             query: case.query.clone(),
-            limit: 10,
+            limit,
             path_prefix: case.path_prefix.clone(),
         })
         .await?;
@@ -116,7 +132,7 @@ fn rank_label(rank: Option<usize>) -> String {
     rank.map_or_else(|| "miss".to_string(), |rank| format!("@{:<3}", rank + 1))
 }
 
-fn print_report(cases: &[EvalCase], runs: &[Vec<CaseResult>]) {
+fn print_report(cases: &[EvalCase], runs: &[Vec<CaseResult>], limit: usize) {
     for (i, case) in cases.iter().enumerate() {
         let ranks: Vec<String> = runs.iter().map(|run| rank_label(run[i].rank)).collect();
         println!("{}  {}", ranks.join(" "), case.query);
@@ -125,7 +141,7 @@ fn print_report(cases: &[EvalCase], runs: &[Vec<CaseResult>]) {
     println!();
     for (i, s) in summaries.iter().enumerate() {
         println!(
-            "run {}: recall@10 {:.3}  mrr {:.3}  p50 {}ms  p95 {}ms  ({} cases)",
+            "run {}: recall@{limit} {:.3}  mrr {:.3}  p50 {}ms  p95 {}ms  ({} cases)",
             i + 1,
             s.recall,
             s.mrr,
@@ -148,20 +164,21 @@ fn spread(values: impl Iterator<Item = f64>) -> (f64, f64) {
 }
 
 pub async fn run(args: &[String]) -> Result<()> {
-    let (file, run_count) = parse_args(args)?;
-    let text = std::fs::read_to_string(&file).with_context(|| format!("cannot read {file}"))?;
+    let args = parse_args(args)?;
+    let text = std::fs::read_to_string(&args.file)
+        .with_context(|| format!("cannot read {}", args.file))?;
     let cases: EvalFile = toml::from_str(&text)?;
     let ctx = repo_context()?;
     let repo_key = cases.meta.repo.unwrap_or(ctx.identity.key);
 
-    let mut runs = Vec::with_capacity(run_count);
-    for _ in 0..run_count {
+    let mut runs = Vec::with_capacity(args.runs);
+    for _ in 0..args.runs {
         let mut results = Vec::with_capacity(cases.case.len());
         for case in &cases.case {
-            results.push(search_case(&ctx.client, &repo_key, case).await?);
+            results.push(search_case(&ctx.client, &repo_key, case, args.limit).await?);
         }
         runs.push(results);
     }
-    print_report(&cases.case, &runs);
+    print_report(&cases.case, &runs, args.limit);
     Ok(())
 }

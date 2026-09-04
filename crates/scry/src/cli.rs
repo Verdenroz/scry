@@ -17,7 +17,7 @@ USAGE:
   scry index                             sync this repo to the server
   scry watch                             sync continuously while you work
   scry status                            show server index counts
-  scry eval <cases.toml> [--runs N]      score retrieval against a golden set
+  scry eval <cases.toml> [--runs N] [--limit N]  score retrieval against a golden set
   scry remember \"insight\" [--kind K] [--pain N] [--anchor path[:a-b]]
   scry recall \"query\" [-m N]             recall memories about this codebase
   scry memory <helpful|noise> <id>       reinforce or demote a memory
