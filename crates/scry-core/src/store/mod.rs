@@ -19,6 +19,7 @@ use rusqlite::ffi::sqlite3_auto_extension;
 use crate::{Error, Result};
 
 const SCHEMA: &str = include_str!("schema.sql");
+const SCHEMA_VERSION: u32 = 3;
 
 static VEC_EXTENSION: Once = Once::new();
 
@@ -84,8 +85,8 @@ impl Store {
             ))?;
             conn.execute(
                 "INSERT INTO meta (key, value) VALUES
-                 ('schema_version', '3'), ('embedding_model', ?1), ('embedding_dim', ?2)",
-                rusqlite::params![embedding_model, dim.to_string()],
+                 ('schema_version', ?3), ('embedding_model', ?1), ('embedding_dim', ?2)",
+                rusqlite::params![embedding_model, dim.to_string(), SCHEMA_VERSION.to_string()],
             )?;
         }
         let store = Self { conn };
@@ -174,10 +175,18 @@ fn migrate(conn: &Connection) -> Result<()> {
         [],
         |row| row.get(0),
     )?;
-    if version == "1" {
+    let version: u32 = version
+        .parse()
+        .map_err(|_| Error::Config(format!("db schema_version {version} is not a number")))?;
+    if version > SCHEMA_VERSION {
+        return Err(Error::Config(format!(
+            "db schema_version {version} is newer than this binary; upgrade scry"
+        )));
+    }
+    if version < 2 {
         conn.execute_batch(MIGRATE_V1_TO_V2)?;
     }
-    if version == "1" || version == "2" {
+    if version < 3 {
         conn.execute_batch(MIGRATE_V2_TO_V3)?;
     }
     Ok(())
@@ -207,7 +216,7 @@ const MIGRATE_V1_TO_V2: &str = "BEGIN;
 
 const MIGRATE_V2_TO_V3: &str = "BEGIN;
     CREATE TABLE chunk_vectors (
-        chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id),
+        chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
         embedding BLOB NOT NULL
     );
     INSERT INTO chunk_vectors (chunk_id, embedding)
@@ -217,6 +226,14 @@ const MIGRATE_V2_TO_V3: &str = "BEGIN;
     UPDATE repos SET chunk_count = (
         SELECT count(*) FROM chunks c JOIN files f ON f.id = c.file_id
         WHERE f.repo_id = repos.id);
+    CREATE TRIGGER chunks_count_ai AFTER INSERT ON chunks BEGIN
+        UPDATE repos SET chunk_count = chunk_count + 1
+        WHERE id = (SELECT repo_id FROM files WHERE id = new.file_id);
+    END;
+    CREATE TRIGGER chunks_count_ad AFTER DELETE ON chunks BEGIN
+        UPDATE repos SET chunk_count = chunk_count - 1
+        WHERE id = (SELECT repo_id FROM files WHERE id = old.file_id);
+    END;
     UPDATE meta SET value = '3' WHERE key = 'schema_version';
     COMMIT;";
 
@@ -287,6 +304,7 @@ mod tests {
                      INSERT INTO vec_chunks (chunk_id, repo_id, embedding)
                          SELECT v.chunk_id, 1, v.embedding FROM chunk_vectors v;
                      DROP TABLE chunk_vectors;
+                     DROP TRIGGER chunks_count_ai; DROP TRIGGER chunks_count_ad;
                      ALTER TABLE repos DROP COLUMN chunk_count;
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
                 )
