@@ -17,7 +17,7 @@ USAGE:
   scry index                             sync this repo to the server
   scry watch                             sync continuously while you work
   scry status                            show server index counts
-  scry eval <cases.toml>                 score retrieval against a golden set
+  scry eval <cases.toml> [--runs N]      score retrieval against a golden set
   scry remember \"insight\" [--kind K] [--pain N] [--anchor path[:a-b]]
   scry recall \"query\" [-m N]             recall memories about this codebase
   scry memory <helpful|noise> <id>       reinforce or demote a memory
@@ -97,7 +97,7 @@ pub async fn dispatch(args: &[String]) -> Result<()> {
         Some("index") => commands::index::run().await,
         Some("watch") => commands::watch::run().await,
         Some("status") => commands::status::run().await,
-        Some("eval") => commands::eval::run(args.get(1).map(String::as_str)).await,
+        Some("eval") => commands::eval::run(&args[1..]).await,
         Some("remember") => commands::memory::remember(&args[1..]).await,
         Some("recall") => commands::memory::recall(&args[1..]).await,
         Some("memory") => commands::memory::feedback(&args[1..]).await,
