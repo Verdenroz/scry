@@ -17,12 +17,15 @@ pub async fn prune(
 ) -> Result<Json<PruneResponse>, ApiError> {
     let deleted_files = state
         .store
-        .call(move |store| {
+        .call(move |store| -> scry_core::Result<usize> {
             let migrate_to = match &request.migrate_memories_to {
                 Some(key) => Some(store.upsert_repo(key)?),
                 None => None,
             };
-            store.prune_repo(&request.repo_key, migrate_to)
+            let deleted = store.prune_repo(&request.repo_key, migrate_to)?;
+            store.optimize()?;
+            store.vacuum()?;
+            Ok(deleted)
         })
         .await?;
     Ok(Json(PruneResponse { deleted_files }))

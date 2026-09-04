@@ -6,8 +6,9 @@ A query runs both retrieval legs and fuses them:
   is embedded and matched against chunk vectors with cosine distance.
   Repos past ~8k chunks get a binary-quantized coarse pass first, then a
   float rescore of the survivors.
-- Lexical: FTS5 BM25 over chunk content and symbols, with query tokens
-  expanded by fuzzy matches against the repo's tree-sitter symbol table.
+- Lexical: FTS5 BM25 over chunk content, symbols, and file paths, with
+  query tokens expanded by fuzzy matches against the repo's tree-sitter
+  symbol table.
 
 Routing weights the fusion by query shape: short keyword or identifier
 queries lean on BM25, natural-language questions lean on the dense leg.
