@@ -42,6 +42,7 @@ impl ChatClient {
         let mut body = serde_json::json!({
             "model": self.config.model,
             "max_tokens": max_tokens,
+            "temperature": 0,
             "messages": [{ "role": "user", "content": prompt }],
         });
         if !self.config.thinking {
