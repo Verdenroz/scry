@@ -12,10 +12,17 @@ pub struct SearchRequest {
     pub limit: usize,
     #[serde(default)]
     pub path_prefix: Option<String>,
+    /// Applies the server's `[rerank]` stage when one is configured.
+    #[serde(default = "default_true")]
+    pub rerank: bool,
 }
 
 fn default_limit() -> usize {
     10
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]

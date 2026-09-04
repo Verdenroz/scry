@@ -20,6 +20,8 @@ pub struct Config {
     #[serde(default)]
     pub tavily: Option<TavilyConfig>,
     #[serde(default)]
+    pub rerank: Option<RerankConfig>,
+    #[serde(default)]
     pub client: ClientConfig,
     #[serde(default)]
     pub index: IndexConfig,
@@ -99,6 +101,35 @@ pub struct ChatConfig {
     pub model: String,
     #[serde(default)]
     pub thinking: bool,
+}
+
+/// Cross-encoder rerank over the fused candidates through an
+/// OpenAI/Jina-style `POST {base_url}/rerank`. Absent means no rerank.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RerankConfig {
+    pub base_url: String,
+    /// Empty sends no Authorization header.
+    #[serde(default)]
+    pub api_key: String,
+    pub model: String,
+    #[serde(default = "default_rerank_top_n")]
+    pub top_n: usize,
+    #[serde(default)]
+    pub gate: RerankGate,
+}
+
+/// Which queries pay for a rerank call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum RerankGate {
+    #[default]
+    None,
+    NaturalLanguage,
+}
+
+fn default_rerank_top_n() -> usize {
+    20
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -307,6 +338,10 @@ impl Config {
             tavily.api_key =
                 resolve_secret(Some(std::mem::take(&mut tavily.api_key))).unwrap_or_default();
         }
+        if let Some(rerank) = self.rerank.as_mut() {
+            rerank.api_key =
+                resolve_secret(Some(std::mem::take(&mut rerank.api_key))).unwrap_or_default();
+        }
     }
 }
 
@@ -362,6 +397,18 @@ mod tests {
         assert_eq!(config.chat.unwrap().model, "qwen3-4b");
         assert_eq!(config.index.max_file_size, 2 * 1024 * 1024);
         assert_eq!(config.index.max_file_count, 500);
+    }
+
+    #[test]
+    fn parses_rerank_section() {
+        let config: Config = toml::from_str(
+            "[rerank]\nbase_url = \"http://r:8080/v1\"\nmodel = \"bge\"\ngate = \"natural-language\"\n",
+        )
+        .unwrap();
+        let rerank = config.rerank.unwrap();
+        assert_eq!(rerank.top_n, 20);
+        assert_eq!(rerank.gate, RerankGate::NaturalLanguage);
+        assert!(Config::default().rerank.is_none());
     }
 
     #[test]

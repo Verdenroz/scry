@@ -7,7 +7,7 @@ use serde::Deserialize;
 use super::repo_context;
 use crate::client::ApiClient;
 
-const USAGE: &str = "usage: scry eval <cases.toml> [--runs N] [--limit N]";
+const USAGE: &str = "usage: scry eval <cases.toml> [--runs N] [--limit N] [--no-rerank]";
 
 #[derive(Deserialize)]
 struct EvalFile {
@@ -54,16 +54,18 @@ struct Args {
     file: String,
     runs: usize,
     limit: usize,
+    rerank: bool,
 }
 
 fn parse_args(args: &[String]) -> Result<Args> {
     let mut file = None;
-    let (mut runs, mut limit) = (1, 10);
+    let (mut runs, mut limit, mut rerank) = (1, 10, true);
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--runs" => runs = it.next().and_then(|v| v.parse().ok()).unwrap_or(runs),
             "--limit" => limit = it.next().and_then(|v| v.parse().ok()).unwrap_or(limit),
+            "--no-rerank" => rerank = false,
             _ => file = Some(arg.clone()),
         }
     }
@@ -74,6 +76,7 @@ fn parse_args(args: &[String]) -> Result<Args> {
         file,
         runs: runs.max(1),
         limit: limit.max(1),
+        rerank,
     })
 }
 
@@ -82,6 +85,7 @@ async fn search_case(
     repo_key: &str,
     case: &EvalCase,
     limit: usize,
+    rerank: bool,
 ) -> Result<CaseResult> {
     let started = Instant::now();
     let response = client
@@ -90,6 +94,7 @@ async fn search_case(
             query: case.query.clone(),
             limit,
             path_prefix: case.path_prefix.clone(),
+            rerank,
         })
         .await?;
     let rank = response.hits.iter().position(|hit| {
@@ -175,7 +180,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     for _ in 0..args.runs {
         let mut results = Vec::with_capacity(cases.case.len());
         for case in &cases.case {
-            results.push(search_case(&ctx.client, &repo_key, case, args.limit).await?);
+            results.push(search_case(&ctx.client, &repo_key, case, args.limit, args.rerank).await?);
         }
         runs.push(results);
     }

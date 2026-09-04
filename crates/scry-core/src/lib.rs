@@ -9,6 +9,7 @@ pub mod hashing;
 pub mod index;
 pub mod memory;
 pub mod repo;
+pub mod rerank;
 pub mod search;
 pub mod store;
 pub mod walk;

@@ -19,6 +19,7 @@ use scry_core::Result;
 use scry_core::chat::ChatClient;
 use scry_core::config::{Config, HydeMode, IndexConfig, MemoryConfig};
 use scry_core::embed::{Embedder, HttpEmbedder};
+use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
 
 const MAX_SYNC_BODY_BYTES: usize = 64 * 1024 * 1024;
@@ -32,6 +33,7 @@ pub struct AppState {
     pub index_config: IndexConfig,
     pub memory_config: MemoryConfig,
     pub tavily: Option<tavily::TavilyClient>,
+    pub rerank: Option<RerankClient>,
 }
 
 impl AppState {
@@ -54,6 +56,7 @@ impl AppState {
             index_config: config.index.clone(),
             memory_config: config.memory.clone(),
             tavily: config.tavily.clone().map(tavily::TavilyClient::new),
+            rerank: config.rerank.clone().map(RerankClient::new),
         }
     }
 }

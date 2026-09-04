@@ -29,6 +29,7 @@ SEARCH OPTIONS:
   -w, --web             include web results
   --repo <key>          search a specific indexed repo from anywhere;
                         outside a repo, all indexed repos are searched
+  --no-rerank           skip the server's rerank stage, if configured
 ";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -40,6 +41,7 @@ pub struct SearchArgs {
     pub answer: bool,
     pub web: bool,
     pub repo: Option<String>,
+    pub rerank: bool,
 }
 
 const VALUE_FLAGS: &[&str] = &["-m", "--max-count", "--max-file-size", "--max-file-count"];
@@ -47,7 +49,7 @@ const VALUE_FLAGS: &[&str] = &["-m", "--max-count", "--max-file-size", "--max-fi
 pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut max_count = 10;
-    let (mut content, mut answer, mut web) = (false, false, false);
+    let (mut content, mut answer, mut web, mut rerank) = (false, false, false, true);
     let mut repo = None;
     let mut it = args.iter().peekable();
     while let Some(arg) = it.next() {
@@ -64,7 +66,8 @@ pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
             flag if VALUE_FLAGS.contains(&flag) => {
                 it.next();
             }
-            "-i" | "-r" | "-s" | "-d" | "--sync" | "--dry-run" | "--no-rerank" => {}
+            "--no-rerank" => rerank = false,
+            "-i" | "-r" | "-s" | "-d" | "--sync" | "--dry-run" => {}
             flag if flag.starts_with('-') => {}
             positional => positionals.push(positional),
         }
@@ -80,6 +83,7 @@ pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
         answer,
         web,
         repo,
+        rerank,
     })
 }
 
@@ -149,6 +153,9 @@ mod tests {
         assert_eq!(parsed.max_count, 5);
         assert!(parsed.content && parsed.web && parsed.answer);
         assert_eq!(parsed.query, "query");
+        assert!(parsed.rerank);
+        let parsed = parse_search_args(&strings(&["--no-rerank", "query"])).unwrap();
+        assert!(!parsed.rerank);
     }
 
     #[test]
