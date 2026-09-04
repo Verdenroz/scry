@@ -11,7 +11,7 @@ use crate::embed::Embedder;
 use crate::store::Store;
 use crate::{Error, Result};
 
-const RRF_K: f64 = 60.0;
+pub const RRF_K: f64 = 60.0;
 const CANDIDATES: usize = 50;
 const JACCARD_DEDUP: f64 = 0.8;
 const RECENCY_BOOST: f64 = 0.1;

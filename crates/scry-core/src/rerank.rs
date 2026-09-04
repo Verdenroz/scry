@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use crate::config::RerankConfig;
-use crate::search::SearchHit;
+use crate::search::{RRF_K, SearchHit};
 use crate::{Error, Result};
 
 pub struct RerankClient {
@@ -59,8 +59,14 @@ impl RerankClient {
         let response = request.send().await?.error_for_status()?;
         let parsed: RerankResponse = response.json().await?;
         let mut results = parsed.results;
-        if results.iter().any(|r| r.index >= documents.len()) {
-            return Err(Error::Rerank("index out of range in response".to_string()));
+        let mut seen = std::collections::HashSet::with_capacity(results.len());
+        if results
+            .iter()
+            .any(|r| r.index >= documents.len() || !seen.insert(r.index))
+        {
+            return Err(Error::Rerank(
+                "bad or repeated index in response".to_string(),
+            ));
         }
         results.sort_by(|a, b| b.relevance_score.total_cmp(&a.relevance_score));
         Ok(results)
@@ -76,12 +82,11 @@ pub fn fuse(
     weight: f64,
     limit: usize,
 ) -> Vec<SearchHit> {
-    const K: f64 = 60.0;
     let mut score: Vec<f64> = (0..hits.len())
-        .map(|rank| 1.0 / (K + rank as f64 + 1.0))
+        .map(|rank| 1.0 / (RRF_K + rank as f64 + 1.0))
         .collect();
     for (rank, r) in ranked.iter().enumerate() {
-        score[r.index] += weight / (K + rank as f64 + 1.0);
+        score[r.index] += weight / (RRF_K + rank as f64 + 1.0);
     }
     let mut order: Vec<usize> = (0..hits.len()).collect();
     order.sort_by(|a, b| score[*b].total_cmp(&score[*a]));

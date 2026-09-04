@@ -13,20 +13,14 @@ long; `rerank` holds the reranker's score per candidate index.
 
 Fusion is computed exactly where the shipped leg sits, at the route level
 after the pool exists: score[i] = 1/(k + pool_rank_i + 1)
-+ w / (k + rerank_rank_i + 1), k = 60, then sort descending. The NL gate
-applies the leg only to queries route_query marks natural language.
++ w / (k + rerank_rank_i + 1), k = 60, then sort descending; `top_n`
+limits which pool positions the reranker scored.
 """
-import json, re, sys, tomllib
+import json, sys, tomllib
 from pathlib import Path
 
 dump_path, eval_dir = sys.argv[1], Path(sys.argv[2])
 K = 60.0
-
-def tokens(q): return [t for t in re.split(r'[^0-9A-Za-z_:]+', q) if len(t) >= 2]
-def inner_upper(t): return t[:1].islower() and any(c.isupper() for c in t[1:])
-def natural_language(q):
-    ts = tokens(q); ident = any('_' in t or '::' in t or inner_upper(t) for t in ts)
-    return not (len(ts) <= 3 or (ident and len(ts) <= 6))
 
 def matches(cand, expectation):
     path, _, line = expectation.rpartition(':')
@@ -38,26 +32,27 @@ dumps = {}
 for line in open(dump_path):
     d = json.loads(line); dumps.setdefault(d['query'], d)
 
-def order_for(d, mode, weight):
+def order_for(d, mode, weight, top_n=None):
     cands = d['candidates']; n = len(cands)
     if mode == 'fused':
         return list(range(n))
     rerank = sorted(d['rerank'], key=lambda r: -r['score'])
+    if top_n is not None:
+        rerank = [r for r in rerank if r['index'] < top_n]
     if mode == 'replace':
-        return [r['index'] for r in rerank]
+        return [r['index'] for r in rerank] + [i for i in range(n) if i >= (top_n or n)]
     score = [1.0 / (K + i + 1) for i in range(n)]
     for rank, r in enumerate(rerank):
         score[r['index']] += weight / (K + rank + 1)
     return sorted(range(n), key=lambda i: -score[i])
 
-def evaluate(cases, mode, weight=1.0, gate=False):
+def evaluate(cases, mode, weight=1.0, top_n=None):
     hits, rr = 0, 0.0
     for case in cases:
         d = dumps.get(case['query'])
         if d is None:
             continue
-        m = 'fused' if (gate and not natural_language(case['query'])) else mode
-        order = order_for(d, m, weight)[:10]
+        order = order_for(d, mode, weight, top_n)[:10]
         rank = next((i for i, idx in enumerate(order)
                      if any(matches(d['candidates'][idx], e) for e in case['expect'])), None)
         if rank is not None:
@@ -65,14 +60,15 @@ def evaluate(cases, mode, weight=1.0, gate=False):
     n = len(cases)
     return f"{hits/n:.3f}/{rr/n:.3f}"
 
-for set_name in ['scry', 'finance-query', 'soothfast']:
-    cases = tomllib.load(open(eval_dir / f'{set_name}.toml', 'rb'))['case']
-    covered = sum(c['query'] in dumps for c in cases)
-    row = [f"{set_name:14} ({covered}/{len(cases)} dumped)",
-           f"fused {evaluate(cases, 'fused')}",
-           f"replace {evaluate(cases, 'replace')}"]
-    for w in (1.0, 2.0, 3.0, 5.0):
-        row.append(f"rrf w{w:g} {evaluate(cases, 'rrf', w)}")
-    row.append(f"rrf w2 nl-gate {evaluate(cases, 'rrf', 2.0, gate=True)}")
-    row.append(f"replace nl-gate {evaluate(cases, 'replace', gate=True)}")
-    print('  '.join(row))
+sets = ['scry', 'finance-query', 'soothfast']
+cases_by_set = {n: tomllib.load(open(eval_dir / f'{n}.toml', 'rb'))['case'] for n in sets}
+print(f"{'arm':22}" + ''.join(f"{n:>16}" for n in sets) + f"{'sum':>16}")
+def row(label, **kw):
+    cells = [evaluate(cases_by_set[n], **kw) for n in sets]
+    tot_r = sum(float(c.split('/')[0]) for c in cells); tot_m = sum(float(c.split('/')[1]) for c in cells)
+    print(f"{label:22}" + ''.join(f"{c:>16}" for c in cells) + f"{tot_r:>9.3f}/{tot_m:.3f}")
+row('fused (no rerank)', mode='fused')
+for top_n in (20, 50):
+    row(f'replace top{top_n}', mode='replace', top_n=top_n)
+    for w in (0.5, 1.0, 1.5, 2.0, 3.0):
+        row(f'rrf w{w:g} top{top_n}', mode='rrf', weight=w, top_n=top_n)
