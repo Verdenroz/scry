@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 
-use crate::config::{RerankConfig, RerankGate};
+use crate::config::RerankConfig;
 use crate::search::SearchHit;
 use crate::{Error, Result};
 
@@ -38,8 +38,8 @@ impl RerankClient {
         self.config.top_n
     }
 
-    pub fn gate(&self) -> RerankGate {
-        self.config.gate
+    pub fn weight(&self) -> f64 {
+        self.config.weight
     }
 
     /// Scores every document against the query; results come back best
@@ -67,19 +67,28 @@ impl RerankClient {
     }
 }
 
-/// Reorders `hits` by the reranker's ranking, reports its relevance clamped
-/// to [0, 1] as the score, and keeps `limit`. Hits the reranker did not
-/// score are dropped.
-pub fn reorder(hits: Vec<SearchHit>, ranked: &[RerankResult], limit: usize) -> Vec<SearchHit> {
+/// Fuses the reranker's ranking into the pool as a reciprocal-rank leg
+/// weighted by `weight` against the pool's own order, then keeps
+/// `limit`. Scores are left as they were; the reranker changes order only.
+pub fn fuse(
+    hits: Vec<SearchHit>,
+    ranked: &[RerankResult],
+    weight: f64,
+    limit: usize,
+) -> Vec<SearchHit> {
+    const K: f64 = 60.0;
+    let mut score: Vec<f64> = (0..hits.len())
+        .map(|rank| 1.0 / (K + rank as f64 + 1.0))
+        .collect();
+    for (rank, r) in ranked.iter().enumerate() {
+        score[r.index] += weight / (K + rank as f64 + 1.0);
+    }
+    let mut order: Vec<usize> = (0..hits.len()).collect();
+    order.sort_by(|a, b| score[*b].total_cmp(&score[*a]));
     let mut slots: Vec<Option<SearchHit>> = hits.into_iter().map(Some).collect();
-    ranked
-        .iter()
-        .filter_map(|r| {
-            slots[r.index].take().map(|hit| SearchHit {
-                score: r.relevance_score.clamp(0.0, 1.0),
-                ..hit
-            })
-        })
+    order
+        .into_iter()
+        .filter_map(|i| slots[i].take())
         .take(limit)
         .collect()
 }
@@ -101,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn reorder_follows_the_reranker_and_truncates() {
+    fn fuse_promotes_by_reranker_rank_and_keeps_scores() {
         let hits = vec![hit("a"), hit("b"), hit("c")];
         let ranked = [
             RerankResult {
@@ -117,10 +126,20 @@ mod tests {
                 relevance_score: -1.0,
             },
         ];
-        let out = reorder(hits, &ranked, 2);
+        let out = fuse(hits, &ranked, 2.0, 2);
         let paths: Vec<&str> = out.iter().map(|h| h.relpath.as_str()).collect();
         assert_eq!(paths, vec!["c", "a"]);
-        assert_eq!(out[0].score, 1.0);
-        assert_eq!(out[1].score, 0.4);
+        assert_eq!(out[0].score, 0.5);
+    }
+
+    #[test]
+    fn fuse_with_zero_weight_keeps_the_pool_order() {
+        let hits = vec![hit("a"), hit("b")];
+        let ranked = [RerankResult {
+            index: 1,
+            relevance_score: 9.0,
+        }];
+        let out = fuse(hits, &ranked, 0.0, 2);
+        assert_eq!(out[0].relpath, "a");
     }
 }

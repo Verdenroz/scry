@@ -16,12 +16,11 @@ Fused candidates get a small recency boost for recently edited files and
 a greedy near-duplicate filter before the final ranking.
 
 With a `[rerank]` endpoint configured, the fused top `top_n` candidates
-are rescored by a cross-encoder and the reranker's relevance, clamped to
-[0, 1], becomes the displayed score; `gate` decides which queries pay for
-the call and `--no-rerank` skips it per query. A reranker that errors or
-takes longer than six seconds is skipped for that query and the fused
-order is returned, so search is never worse than without it. The score
-transform for logit-shaped rerankers is decided once one is measured.
+are scored by a cross-encoder and its ranking joins the fusion as a
+third reciprocal-rank leg with `weight` (k=60, default 1.0). The
+reranker changes order only; the displayed score stays the dense cosine.
+A reranker that errors or takes longer than six seconds is skipped for
+that query, and `--no-rerank` skips it per query.
 
 Chunks are function-level where a tree-sitter grammar exists (16
 languages), blank-line-snapped windows elsewhere, and each chunk is

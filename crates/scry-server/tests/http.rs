@@ -222,7 +222,7 @@ async fn search(http: &reqwest::Client, base: &str, rerank: bool) -> Vec<String>
 async fn rerank_stage_reorders_and_no_rerank_bypasses_it() {
     let reranker = spawn_mock_reranker().await;
     let config: RerankConfig = toml::from_str(&format!(
-        "base_url = \"{reranker}\"\nmodel = \"mock\"\ntop_n = 2\n"
+        "base_url = \"{reranker}\"\nmodel = \"mock\"\ntop_n = 2\nweight = 2.0\n"
     ))
     .unwrap();
     let base = spawn_server_with(Some(RerankClient::new(config))).await;

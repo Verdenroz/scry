@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use scry_core::config::RerankGate;
 use scry_core::index::embed_input;
-use scry_core::rerank::reorder;
-use scry_core::search::{SearchOptions, query_vector, route_query, search_with_vector};
+use scry_core::rerank::fuse;
+use scry_core::search::{SearchOptions, query_vector, search_with_vector};
 
 use crate::AppState;
 use crate::api::{Hit, SearchRequest, SearchResponse};
@@ -31,13 +30,7 @@ pub async fn search(
         &request.query,
     )
     .await?;
-    let rerank = state.rerank.as_ref().filter(|client| {
-        request.rerank
-            && match client.gate() {
-                RerankGate::None => true,
-                RerankGate::NaturalLanguage => route_query(&request.query).natural_language,
-            }
-    });
+    let rerank = state.rerank.as_ref().filter(|_| request.rerank);
     let pool = rerank.map_or(request.limit, |client| request.limit.max(client.top_n()));
     let (query, limit) = (request.query.clone(), request.limit);
     let hits = state
@@ -65,7 +58,7 @@ pub async fn search(
                 .map(|h| embed_input(&h.repo_key, &h.relpath, h.symbol.as_deref(), &h.content))
                 .collect();
             match tokio::time::timeout(RERANK_BUDGET, client.rerank(&query, &documents)).await {
-                Ok(Ok(ranked)) => reorder(hits, &ranked, limit),
+                Ok(Ok(ranked)) => fuse(hits, &ranked, client.weight(), limit),
                 Ok(Err(error)) => {
                     tracing::warn!("rerank failed, returning fused order: {error}");
                     truncated(hits, limit)
