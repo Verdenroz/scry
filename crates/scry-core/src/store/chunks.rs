@@ -301,7 +301,14 @@ impl Store {
         let mut by_id: HashMap<i64, ChunkRow> = rows
             .map(|row| row.map(|r| (r.id, r)))
             .collect::<std::result::Result<_, _>>()?;
-        Ok(chunk_ids.iter().filter_map(|id| by_id.remove(id)).collect())
+        chunk_ids
+            .iter()
+            .map(|id| {
+                by_id
+                    .remove(id)
+                    .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows.into())
+            })
+            .collect()
     }
 
     pub fn symbols(&self, repo_id: Option<i64>) -> Result<Vec<String>> {
