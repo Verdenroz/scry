@@ -144,13 +144,13 @@ impl Store {
             |row| row.get(0),
         )?;
         if chunk_count > BINARY_COARSE_THRESHOLD {
-            self.dense_search_two_stage(repo_id, query, k)
+            self.dense_search_coarse(repo_id, query, k, (k * COARSE_FACTOR).max(200))
         } else {
-            self.dense_search_flat(repo_id, query, k)
+            self.dense_search_exact(repo_id, query, k)
         }
     }
 
-    fn dense_search_flat(
+    pub fn dense_search_exact(
         &self,
         repo_id: Option<i64>,
         query: &[f32],
@@ -186,13 +186,15 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
-    fn dense_search_two_stage(
+    /// Hamming pass over `vec_chunks_bit` keeps `coarse_k` candidates,
+    /// then the float table rescores them by cosine and keeps `k`.
+    pub fn dense_search_coarse(
         &self,
         repo_id: Option<i64>,
         query: &[f32],
         k: usize,
+        coarse_k: usize,
     ) -> Result<Vec<DenseHit>> {
-        let coarse_k = (k * COARSE_FACTOR).max(200);
         let sql = match repo_id {
             Some(_) => {
                 "SELECT chunk_id FROM vec_chunks_bit
@@ -234,6 +236,25 @@ impl Store {
         hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         hits.truncate(k);
         Ok(hits)
+    }
+
+    pub fn sample_chunk_vectors(
+        &self,
+        repo_id: Option<i64>,
+        n: usize,
+    ) -> Result<Vec<(i64, Vec<f32>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT v.chunk_id, v.embedding FROM vec_chunks v
+             JOIN chunks c ON c.id = v.chunk_id
+             JOIN files f ON f.id = c.file_id
+             WHERE ?1 IS NULL OR f.repo_id = ?1
+             ORDER BY random() LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![repo_id, n as i64], |row| {
+            let bytes: Vec<u8> = row.get(1)?;
+            Ok((row.get(0)?, bytes_to_vector(&bytes)))
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     pub fn lexical_search(
