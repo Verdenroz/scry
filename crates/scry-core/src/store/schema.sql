@@ -31,9 +31,17 @@ CREATE INDEX chunks_by_hash ON chunks(content_hash);
 -- Float vectors as plain rows: point lookups by id cost one 4 KB read,
 -- where a vec0 point lookup pulls the whole 4 MB vector block.
 CREATE TABLE chunk_vectors (
-    chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id),
+    chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
     embedding BLOB NOT NULL
 );
+CREATE TRIGGER chunks_count_ai AFTER INSERT ON chunks BEGIN
+    UPDATE repos SET chunk_count = chunk_count + 1
+    WHERE id = (SELECT repo_id FROM files WHERE id = new.file_id);
+END;
+CREATE TRIGGER chunks_count_ad AFTER DELETE ON chunks BEGIN
+    UPDATE repos SET chunk_count = chunk_count - 1
+    WHERE id = (SELECT repo_id FROM files WHERE id = old.file_id);
+END;
 
 -- Contentless: rows are fed by the triggers so relpath can be copied in
 -- from files and path words rank in BM25 alongside content and symbols.

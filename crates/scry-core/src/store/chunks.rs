@@ -54,17 +54,58 @@ fn bytes_to_vector(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-fn cosine_distance(a: &[f32], b: &[f32]) -> f64 {
-    let (mut dot, mut na, mut nb) = (0f64, 0f64, 0f64);
-    for (x, y) in a.iter().zip(b) {
-        dot += f64::from(*x) * f64::from(*y);
-        na += f64::from(*x) * f64::from(*x);
-        nb += f64::from(*y) * f64::from(*y);
+/// Cosine distance between the query and a little-endian f32 blob,
+/// computed in place so a full scan allocates nothing per row.
+fn cosine_distance(query: &[f32], query_norm: f64, blob: &[u8]) -> f64 {
+    let (mut dot, mut norm) = (0f64, 0f64);
+    for (x, bytes) in query.iter().zip(blob.as_chunks::<4>().0) {
+        let y = f64::from(f32::from_le_bytes(*bytes));
+        dot += f64::from(*x) * y;
+        norm += y * y;
     }
-    if na == 0.0 || nb == 0.0 {
+    if query_norm == 0.0 || norm == 0.0 {
         return 1.0;
     }
-    1.0 - dot / (na.sqrt() * nb.sqrt())
+    1.0 - dot / (query_norm * norm.sqrt())
+}
+
+fn norm(vector: &[f32]) -> f64 {
+    vector
+        .iter()
+        .map(|x| f64::from(*x) * f64::from(*x))
+        .sum::<f64>()
+        .sqrt()
+}
+
+/// Keeps `top` sorted by distance and at most `k` long.
+fn keep_best(top: &mut Vec<DenseHit>, hit: DenseHit, k: usize) {
+    if top.len() == k && hit.distance >= top[k - 1].distance {
+        return;
+    }
+    let at = top.partition_point(|h| h.distance <= hit.distance);
+    top.insert(at, hit);
+    top.truncate(k);
+}
+
+/// Scans `stmt` rows of (chunk_id, embedding blob) and keeps the k nearest.
+fn nearest(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: impl rusqlite::Params,
+    query: &[f32],
+    k: usize,
+) -> Result<Vec<DenseHit>> {
+    let query_norm = norm(query);
+    let mut top = Vec::with_capacity(k + 1);
+    let mut rows = stmt.query(params)?;
+    while let Some(row) = rows.next()? {
+        let blob = row.get_ref(1)?.as_blob().map_err(rusqlite::Error::from)?;
+        let hit = DenseHit {
+            chunk_id: row.get(0)?,
+            distance: cosine_distance(query, query_norm, blob),
+        };
+        keep_best(&mut top, hit, k);
+    }
+    Ok(top)
 }
 
 fn json_id_list(ids: &[i64]) -> String {
@@ -99,17 +140,7 @@ impl Store {
     ) -> Result<()> {
         let tx = self.conn.transaction()?;
         tx.execute(
-            "UPDATE repos SET chunk_count = chunk_count + ?3 -
-             (SELECT count(*) FROM chunks WHERE file_id = ?2) WHERE id = ?1",
-            params![repo_id, file_id, chunks.len() as i64],
-        )?;
-        tx.execute(
             "DELETE FROM vec_chunks_bit WHERE chunk_id IN
-             (SELECT id FROM chunks WHERE file_id = ?1)",
-            [file_id],
-        )?;
-        tx.execute(
-            "DELETE FROM chunk_vectors WHERE chunk_id IN
              (SELECT id FROM chunks WHERE file_id = ?1)",
             [file_id],
         )?;
@@ -199,18 +230,7 @@ impl Store {
             "SELECT chunk_id, embedding FROM chunk_vectors
              WHERE chunk_id IN (SELECT value FROM json_each(?1))",
         )?;
-        let mut hits: Vec<DenseHit> = rescore
-            .query_map([json_id_list(&candidates)], |row| {
-                let bytes: Vec<u8> = row.get(1)?;
-                Ok(DenseHit {
-                    chunk_id: row.get(0)?,
-                    distance: cosine_distance(query, &bytes_to_vector(&bytes)),
-                })
-            })?
-            .collect::<std::result::Result<_, _>>()?;
-        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
-        hits.truncate(k);
-        Ok(hits)
+        nearest(&mut rescore, [json_id_list(&candidates)], query, k)
     }
 
     /// Exact cosine KNN as a scan over the plain float table.
@@ -226,18 +246,7 @@ impl Store {
              JOIN files f ON f.id = c.file_id
              WHERE ?1 IS NULL OR f.repo_id = ?1",
         )?;
-        let mut hits: Vec<DenseHit> = stmt
-            .query_map([repo_id], |row| {
-                let bytes: Vec<u8> = row.get(1)?;
-                Ok(DenseHit {
-                    chunk_id: row.get(0)?,
-                    distance: cosine_distance(query, &bytes_to_vector(&bytes)),
-                })
-            })?
-            .collect::<std::result::Result<_, _>>()?;
-        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
-        hits.truncate(k);
-        Ok(hits)
+        nearest(&mut stmt, [repo_id], query, k)
     }
 
     pub fn sample_chunk_vectors(
