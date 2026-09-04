@@ -1,0 +1,273 @@
+# Golden retrieval set for scry itself. Expectations come from CLAUDE.md,
+# docs/, and source identifiers, never from a ranker's output; a case that
+# was chosen by running search would tune the ranker to itself.
+# Run: scry eval eval/scry.toml --runs 3
+
+[meta]
+repo = "github.com/Verdenroz/scry"
+
+# natural language
+
+[[case]]
+query = "where does the server keep the sqlite connection off the async runtime"
+expect = ["crates/scry-server/src/store_actor.rs"]
+
+[[case]]
+query = "how are memories marked stale when the file they point at changes"
+expect = ["crates/scry-core/src/store/memories.rs:175", "crates/scry-core/src/index.rs:101"]
+
+[[case]]
+query = "turn a git remote into a stable repository key"
+expect = ["crates/scry-core/src/repo.rs:27"]
+
+[[case]]
+query = "decide whether a query is keyword-ish or natural language"
+expect = ["crates/scry-core/src/search.rs:48"]
+
+[[case]]
+query = "reciprocal rank fusion of the dense and lexical result lists"
+expect = ["crates/scry-core/src/search.rs:245"]
+
+[[case]]
+query = "binary quantized coarse pass before rescoring with float vectors"
+expect = ["crates/scry-core/src/store/chunks.rs:189"]
+
+[[case]]
+query = "split a source file into function-level chunks with tree-sitter"
+expect = ["crates/scry-core/src/chunker/treesitter.rs:242"]
+
+[[case]]
+query = "fixed line windows with overlap for files without a grammar"
+expect = ["crates/scry-core/src/chunker/line_window.rs:7"]
+
+[[case]]
+query = "what text is sent to the embedding model for a chunk"
+expect = ["crates/scry-core/src/index.rs:29"]
+
+[[case]]
+query = "reuse vectors already stored for unchanged chunks instead of re-embedding"
+expect = ["crates/scry-core/src/index.rs:81"]
+
+[[case]]
+query = "call the OpenAI compatible embeddings endpoint with retries"
+expect = ["crates/scry-core/src/embed.rs:40"]
+
+[[case]]
+query = "deterministic fake embedder for tests without a network"
+expect = ["crates/scry-core/src/embed.rs:105"]
+
+[[case]]
+query = "refuse to open a database built with a different embedding model"
+expect = ["crates/scry-core/src/store/mod.rs:100"]
+
+[[case]]
+query = "config file lookup order and environment overrides"
+expect = ["crates/scry-core/src/config.rs:259", "crates/scry-core/src/config.rs:281"]
+
+[[case]]
+query = "secret values that reference an environment variable"
+expect = ["crates/scry-core/src/config.rs:250"]
+
+[[case]]
+query = "which files are skipped when walking a repository"
+expect = ["crates/scry-core/src/walk.rs:31", "crates/scry-core/src/walk.rs:11"]
+
+[[case]]
+query = "how a memory's importance is computed when it is written"
+expect = ["crates/scry-core/src/memory.rs:56"]
+
+[[case]]
+query = "recall ranking combines similarity with decay and learned utility"
+expect = ["crates/scry-core/src/memory.rs:63"]
+
+[[case]]
+query = "generate a hypothetical code snippet to improve the query embedding"
+expect = ["crates/scry-core/src/search.rs:163"]
+
+[[case]]
+query = "disable the model's thinking mode in chat requests"
+expect = ["crates/scry-core/src/chat.rs"]
+
+[[case]]
+query = "answer a question with numbered citations from local and web sources"
+expect = ["crates/scry-server/src/routes/answer.rs"]
+
+[[case]]
+query = "check the bearer token on incoming requests"
+expect = ["crates/scry-server/src/auth.rs"]
+
+[[case]]
+query = "client uploads changed files in batches after comparing hashes"
+expect = ["crates/scry/src/commands/index.rs:43"]
+
+[[case]]
+query = "re-sync the repository whenever files change on disk"
+expect = ["crates/scry/src/commands/watch.rs"]
+
+[[case]]
+query = "never treat the home directory as a project"
+expect = ["crates/scry/src/commands/mod.rs:24"]
+
+[[case]]
+query = "print results as path:start-end with a percent match"
+expect = ["crates/scry/src/output.rs"]
+
+[[case]]
+query = "unknown command line flags are ignored instead of failing"
+expect = ["crates/scry/src/cli.rs:47"]
+
+[[case]]
+query = "score retrieval quality against a golden set"
+expect = ["crates/scry/src/commands/eval.rs"]
+
+[[case]]
+query = "search a single repo from anywhere or all repos at once"
+expect = ["crates/scry/src/commands/search.rs:21"]
+
+[[case]]
+query = "web search through an external API"
+expect = ["crates/scry-server/src/tavily.rs"]
+
+# identifiers and fragments
+
+[[case]]
+query = "StoreHandle"
+expect = ["crates/scry-server/src/store_actor.rs"]
+
+[[case]]
+query = "store handle spawn"
+expect = ["crates/scry-server/src/store_actor.rs:15"]
+
+[[case]]
+query = "mark_stale_anchors"
+expect = ["crates/scry-core/src/store/memories.rs:175"]
+
+[[case]]
+query = "normalize remote url"
+expect = ["crates/scry-core/src/repo.rs:27"]
+
+[[case]]
+query = "expand_symbols"
+expect = ["crates/scry-core/src/search.rs:110"]
+
+[[case]]
+query = "fts query builder"
+expect = ["crates/scry-core/src/search.rs:142"]
+
+[[case]]
+query = "replace_file_chunks"
+expect = ["crates/scry-core/src/store/chunks.rs:87"]
+
+[[case]]
+query = "hydrate chunks"
+expect = ["crates/scry-core/src/store/chunks.rs:267"]
+
+[[case]]
+query = "vector_for_hash"
+expect = ["crates/scry-core/src/store/chunks.rs:69"]
+
+[[case]]
+query = "HttpEmbedder"
+expect = ["crates/scry-core/src/embed.rs"]
+
+[[case]]
+query = "compose salience"
+expect = ["crates/scry-core/src/memory.rs:56"]
+
+[[case]]
+query = "parse_byte_size"
+expect = ["crates/scry-core/src/config.rs:208"]
+
+[[case]]
+query = "MAX_DEF_LINES"
+expect = ["crates/scry-core/src/chunker/treesitter.rs"]
+
+[[case]]
+query = "BINARY_COARSE_THRESHOLD"
+expect = ["crates/scry-core/src/store/chunks.rs"]
+
+[[case]]
+query = "ApiClient post"
+expect = ["crates/scry/src/client.rs:30"]
+
+# docs and config
+
+[[case]]
+query = "how do I run the server on a home box and reach it from a laptop"
+expect = ["docs/hosting.md"]
+
+[[case]]
+query = "back up or move the index to another machine"
+expect = ["docs/hosting.md"]
+
+[[case]]
+query = "what the client sends to the server to sync a repo"
+expect = ["docs/sync-protocol.md"]
+
+[[case]]
+query = "half life of memories in days"
+expect = ["docs/memory.md", "deploy/config.example.toml"]
+
+[[case]]
+query = "systemd unit for running the server at boot"
+expect = ["deploy/scry.service"]
+
+[[case]]
+query = "example configuration with every section"
+expect = ["deploy/config.example.toml"]
+
+[[case]]
+query = "rules for adding a route that touches the store"
+expect = ["CLAUDE.md"]
+
+[[case]]
+query = "why does renaming a file re-embed its chunks"
+expect = ["CLAUDE.md", "docs/search.md"]
+
+[[case]]
+query = "plugin versions must be bumped in two manifests"
+expect = ["CLAUDE.md"]
+
+[[case]]
+query = "when Claude Code starts, begin watching the repo"
+expect = ["plugin/plugins/scry/hooks/scry_watch.py", "plugin/plugins/scry/hooks/hook.json"]
+
+[[case]]
+query = "inject relevant memories into each prompt"
+expect = ["plugin/plugins/scry/hooks/scry_recall.py"]
+
+[[case]]
+query = "instructions telling the agent to use scry instead of grep"
+expect = ["plugin/plugins/scry/skills/scry/SKILL.md"]
+
+# path scoped
+
+[[case]]
+query = "where the store lives during request handling"
+expect = ["crates/scry-server/src/store_actor.rs"]
+path_prefix = "crates/scry-server"
+
+[[case]]
+query = "route handler for search requests"
+expect = ["crates/scry-server/src/routes/search.rs"]
+path_prefix = "crates/scry-server/src/routes"
+
+[[case]]
+query = "delete a repository and everything indexed under it"
+expect = ["crates/scry-core/src/store/files.rs:59"]
+path_prefix = "crates/scry-core/src/store"
+
+[[case]]
+query = "recall memories"
+expect = ["crates/scry/src/commands/memory.rs:79"]
+path_prefix = "crates/scry/src/commands"
+
+[[case]]
+query = "language detection from file extension"
+expect = ["crates/scry-core/src/chunker/treesitter.rs:30"]
+path_prefix = "crates/scry-core/src/chunker"
+
+[[case]]
+query = "hash a file in streaming chunks"
+expect = ["crates/scry-core/src/hashing.rs:11"]
+path_prefix = "crates/scry-core"

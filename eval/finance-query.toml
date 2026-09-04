@@ -1,0 +1,257 @@
+# Golden retrieval set for finance-query. Expectations come from the repo's
+# README, docs, and source identifiers, never from a ranker's output; a case
+# that was chosen by running search would tune the ranker to itself.
+# Run: scry eval eval/finance-query.toml --runs 3
+
+[meta]
+repo = "github.com/Verdenroz/finance-query"
+
+[[case]]
+query = "how do I fetch the current price for a single stock symbol"
+expect = ["src/ticker/core.rs:336"]
+
+[[case]]
+query = "where are outbound calls throttled so we stay under a vendor's per-second cap"
+expect = ["src/rate_limiter.rs:45"]
+
+[[case]]
+query = "how is the wait between reconnection attempts grown and randomized"
+expect = ["src/backoff.rs"]
+
+[[case]]
+query = "what happens when an upstream answers 429 too many requests"
+expect = ["src/providers/retry.rs"]
+
+[[case]]
+query = "how are bullish and bearish candle formations recognized"
+expect = ["src/indicators/patterns.rs:542"]
+
+[[case]]
+query = "expected shortfall in the worst tail of the return distribution"
+expect = ["src/risk/cvar.rs"]
+
+[[case]]
+query = "how does the web service stop one caller from eating everyone's request budget"
+expect = ["server/src/rate_limit.rs:205"]
+
+[[case]]
+query = "where is the expiry window for stored responses chosen based on whether trading is open"
+expect = ["server/src/cache.rs:18"]
+
+[[case]]
+query = "how does the API decide which language to translate a response into"
+expect = ["server/src/lang.rs:15"]
+
+[[case]]
+query = "which module reads syndication entries without pulling in an XML crate"
+expect = ["src/feeds/parser.rs"]
+
+[[case]]
+query = "how are sector names and officer titles rendered in another language without an ML model"
+expect = ["src/translation/dictionary.rs"]
+
+[[case]]
+query = "where is a paragraph broken into sentences before being fed to the model"
+expect = ["src/translation/split.rs"]
+
+[[case]]
+query = "how do we avoid running the same headline through the translator twice"
+expect = ["src/translation/memo.rs"]
+
+[[case]]
+query = "where are exchange holidays and early closes computed from federal rules instead of fetched"
+expect = ["src/providers/market_calendar.rs"]
+
+[[case]]
+query = "how does the library pick which data source answers a given kind of request"
+expect = ["src/providers/routes.rs:100", "src/providers/capability.rs:141"]
+
+[[case]]
+query = "how is readable text recovered from an embedded subset font inside a PDF"
+expect = ["src/adapters/housetrades/pdf/cmap.rs"]
+
+[[case]]
+query = "why is the HTTP connection pool keyed by tokio runtime id"
+expect = ["src/adapters/yahoo/session.rs"]
+
+[[case]]
+query = "how do I coalesce a burst of updates into one message per time window"
+expect = ["src/streaming/batch.rs"]
+
+[[case]]
+query = "notify me when a symbol crosses above a target level"
+expect = ["src/streaming/alerts.rs:270"]
+
+[[case]]
+query = "where is the reconnect loop that survives a dropped socket"
+expect = ["src/streaming/source.rs"]
+
+[[case]]
+query = "how can several consumers read from one shared background task"
+expect = ["src/streaming/subscription.rs"]
+
+[[case]]
+query = "how is an exhaustive parameter sweep run across cores"
+expect = ["src/backtesting/optimizer/grid.rs:102"]
+
+[[case]]
+query = "estimating the spread of possible outcomes by reshuffling trade returns"
+expect = ["src/backtesting/monte_carlo.rs:142"]
+
+[[case]]
+query = "guarding against curve fitting with rolling train and test windows"
+expect = ["src/backtesting/walk_forward.rs:160"]
+
+[[case]]
+query = "how does a ticker symbol get mapped to its SEC company identifier"
+expect = ["src/adapters/edgar/client.rs:203"]
+
+[[case]]
+query = "base_to_htf_index"
+expect = ["src/backtesting/resample.rs:68"]
+
+[[case]]
+query = "kelly_criterion"
+expect = ["src/risk/ratios.rs:97", "src/perf_metrics.rs:22"]
+
+[[case]]
+query = "drawdown_series"
+expect = ["src/backtesting/result/rolling.rs:59"]
+
+[[case]]
+query = "metrics_by_tag"
+expect = ["src/backtesting/result/tags.rs:53"]
+
+[[case]]
+query = "derive_format_convert"
+expect = ["finance-query-derive/src/lib.rs:427"]
+
+[[case]]
+query = "candidate_providers"
+expect = ["src/providers/capability.rs:141"]
+
+[[case]]
+query = "RequestTimer"
+expect = ["server/src/metrics.rs:329"]
+
+[[case]]
+query = "build_selection_or_default"
+expect = ["finance-query-mcp/src/tools/gql.rs:445"]
+
+[[case]]
+query = "fetch_institutional_holdings_response"
+expect = ["src/adapters/edgar/filings/thirteen_f.rs:75"]
+
+[[case]]
+query = "SmaCrossover"
+expect = ["src/backtesting/strategy/prebuilt.rs:87"]
+
+[[case]]
+query = "scrape_exchanges"
+expect = ["src/scrapers/yahoo_exchanges.rs:16"]
+
+[[case]]
+query = "parse_interval"
+expect = ["finance-query-mcp/src/tools/helpers.rs:4"]
+
+[[case]]
+query = "from_gql_json"
+expect = ["server/src/graphql/error.rs:12"]
+
+[[case]]
+query = "authenticate_with_config"
+expect = ["src/adapters/yahoo/auth.rs:74"]
+
+[[case]]
+query = "calculate_position_size_with_context"
+expect = ["src/backtesting/config/sizing.rs:109"]
+
+[[case]]
+query = "which optional feature flag turns on the strategy simulation engine"
+expect = ["Cargo.toml"]
+
+[[case]]
+query = "which dependency licenses are permitted and how is a known advisory waived"
+expect = ["deny.toml"]
+
+[[case]]
+query = "which secrets and SMTP settings does the production deployment need"
+expect = [".env.template"]
+
+[[case]]
+query = "clickjacking and MIME-sniffing headers on the public reverse proxy"
+expect = ["Caddyfile"]
+
+[[case]]
+query = "which pages appear in the generated documentation site navigation"
+expect = ["soothfast.toml"]
+
+[[case]]
+query = "full table of every v2 HTTP route the service exposes"
+expect = ["server/README.md"]
+
+[[case]]
+query = "how do I register this with Cursor or Windsurf"
+expect = ["finance-query-mcp/README.md"]
+
+[[case]]
+query = "alert that fires when the error rate spikes above ten percent"
+expect = ["monitoring/prometheus/alerts/finance-query.yml"]
+
+[[case]]
+query = "which environment variables hold the provider API keys"
+expect = ["docs/library/configuration.md"]
+
+[[case]]
+query = "commands to set up a dev environment and run only the fast tests"
+expect = ["docs/development/contributing.md", "Makefile"]
+
+[[case]]
+query = "cloud with leading and lagging span lines"
+expect = ["src/indicators/ichimoku.rs:47"]
+path_prefix = "src/indicators"
+
+[[case]]
+query = "full ladder of bid and ask depth levels per side"
+expect = ["src/streaming/book.rs"]
+path_prefix = "src/streaming"
+
+[[case]]
+query = "socket protocol for subscribing and unsubscribing to live prices"
+expect = ["server/src/handlers/stream.rs"]
+path_prefix = "server/src/handlers"
+
+[[case]]
+query = "which documents mention a phrase, across every filer"
+expect = ["src/adapters/edgar/filings/full_text.rs:77"]
+path_prefix = "src/adapters/edgar"
+
+[[case]]
+query = "downloading a CPU model package on first use and caching it"
+expect = ["src/translation/opusmt.rs"]
+path_prefix = "src/translation"
+
+[[case]]
+query = "recent success and failure window per data source"
+expect = ["src/providers/health.rs"]
+path_prefix = "src/providers"
+
+[[case]]
+query = "compile-time type parameter choosing raw versus human-readable numbers"
+expect = ["src/models/format.rs"]
+path_prefix = "src/models"
+
+[[case]]
+query = "largest peak to trough decline"
+expect = ["src/risk/drawdown.rs:19"]
+path_prefix = "src/risk"
+
+[[case]]
+query = "mapping a library failure into a tool-protocol error"
+expect = ["finance-query-mcp/src/error.rs"]
+path_prefix = "finance-query-mcp/src"
+
+[[case]]
+query = "typed query builder for custom stock filters"
+expect = ["docs/library/screeners.md"]
+path_prefix = "docs/library"

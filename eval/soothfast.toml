@@ -1,0 +1,257 @@
+# Golden retrieval set for soothfast. Expectations come from the repo's
+# README, docs, and source identifiers, never from a ranker's output; a case
+# that was chosen by running search would tune the ranker to itself.
+# Run: scry eval eval/soothfast.toml --runs 3
+
+[meta]
+repo = "github.com/Verdenroz/soothfast"
+
+[[case]]
+query = "how does the tool decide a benchmark got slower and fail the build"
+expect = ["cargo-soothfast/src/gate.rs"]
+
+[[case]]
+query = "where is the percentage limit widened when the machine is noisy"
+expect = ["cargo-soothfast/src/gate.rs:52"]
+
+[[case]]
+query = "how are two versions of the code measured back to back in a scratch checkout"
+expect = ["cargo-soothfast/src/gate.rs:654", "cargo-soothfast/src/invoke.rs:1028"]
+
+[[case]]
+query = "how is whitespace normalized before an item's source is fingerprinted"
+expect = ["soothfast-docs/src/comments.rs:10"]
+
+[[case]]
+query = "where are the prose markers and code fences located inside a page"
+expect = ["soothfast-docs/src/markdown.rs:121"]
+
+[[case]]
+query = "how is a stated number checked against the recorded run"
+expect = ["soothfast-docs/src/claims.rs:88"]
+
+[[case]]
+query = "where is an expression with an operator and a numeric bound turned into a struct"
+expect = ["soothfast-docs/src/claims.rs:38"]
+
+[[case]]
+query = "how does a fenced example become a real unit test file"
+expect = ["soothfast-docs/src/gentests.rs:42"]
+
+[[case]]
+query = "how is the list of public items read out of rustdoc output"
+expect = ["soothfast-docs/src/surface.rs:97"]
+
+[[case]]
+query = "where does it compute what was added or removed from the public api"
+expect = ["soothfast-docs/src/diff.rs:27"]
+
+[[case]]
+query = "how many exported items carry documentation, where is that tallied"
+expect = ["cargo-soothfast/src/coverage.rs:94"]
+
+[[case]]
+query = "where is the median and spread of timing samples computed"
+expect = ["soothfast-measure/src/stats.rs:14"]
+
+[[case]]
+query = "how is a claimed growth curve verified across input sizes"
+expect = ["soothfast-measure/src/sweep.rs:36"]
+
+[[case]]
+query = "how are heap allocations counted around a measured body"
+expect = ["soothfast-measure/src/alloc.rs:56"]
+
+[[case]]
+query = "how often a future is polled and woken, where is that recorded"
+expect = ["soothfast-measure/src/asyncexec.rs:17"]
+
+[[case]]
+query = "where does it shell out to valgrind for a deterministic instruction count"
+expect = ["soothfast-measure/src/callgrind.rs:119"]
+
+[[case]]
+query = "where does the agent-facing stdio server answer tool calls"
+expect = ["cargo-soothfast/src/mcp.rs:96"]
+
+[[case]]
+query = "how are handlers matched up with the operations a contract file declares"
+expect = ["soothfast-spec/src/reconcile.rs:34"]
+
+[[case]]
+query = "how does it decide whether an api change breaks the people calling it"
+expect = ["soothfast-spec/src/openapi/diff.rs:28", "soothfast-spec/src/compat.rs"]
+
+[[case]]
+query = "where does the client generator answer every typing question once, before emitting"
+expect = ["soothfast-sdk/src/lower.rs:19"]
+
+[[case]]
+query = "where does the hand-written half with retries and backoff live for python"
+expect = ["soothfast-sdk/assets/python/_runtime.py"]
+
+[[case]]
+query = "how does a spawned process tell the caller which port it landed on"
+expect = ["soothfast/src/embed.rs:34", "soothfast-sdk/assets/typescript/server.ts"]
+
+[[case]]
+query = "how is a whole palette derived from one seed colour"
+expect = ["soothfast-site/src/color.rs:186"]
+
+[[case]]
+query = "how are svg charts of drift over time drawn"
+expect = ["soothfast-report/src/trend_chart.rs:47"]
+
+[[case]]
+query = "how can a test swap a backend for a fake one at run time"
+expect = ["soothfast-registry/src/lib.rs:476"]
+
+[[case]]
+query = "fnv1a"
+expect = ["soothfast-registry/src/lib.rs:502"]
+
+[[case]]
+query = "splice_output"
+expect = ["soothfast-docs/src/markdown.rs:212"]
+
+[[case]]
+query = "sanitized_stem"
+expect = ["soothfast-docs/src/gentests.rs:12"]
+
+[[case]]
+query = "role_from_seed"
+expect = ["soothfast-site/src/color.rs:186"]
+
+[[case]]
+query = "logical_lines"
+expect = ["soothfast-site/src/toml.rs:129"]
+
+[[case]]
+query = "parse_duration_ns"
+expect = ["soothfast-macros/src/lib.rs:89"]
+
+[[case]]
+query = "wire_name_field"
+expect = ["soothfast-spec/src/schema/serde_attrs.rs:184", "soothfast-spec/src/schema/graphql_attrs.rs:211"]
+
+[[case]]
+query = "template_matches"
+expect = ["soothfast-spec/src/probe/shape.rs:47"]
+
+[[case]]
+query = "parse_proto_message"
+expect = ["soothfast-spec/src/proto.rs:20"]
+
+[[case]]
+query = "with_merge_base_worktree"
+expect = ["cargo-soothfast/src/invoke.rs:1028"]
+
+[[case]]
+query = "manylinux warning"
+expect = ["cargo-soothfast/src/sdk_build.rs:145"]
+
+[[case]]
+query = "prune_absorbed"
+expect = ["cargo-soothfast/src/gate_lock.rs:154"]
+
+[[case]]
+query = "dotenv template parser"
+expect = ["soothfast-sdk/src/envtemplate.rs:39"]
+
+[[case]]
+query = "changes_from_subjects"
+expect = ["soothfast-report/src/changelog.rs:72"]
+
+[[case]]
+query = "sniff_kind"
+expect = ["soothfast-spec/src/lib.rs:63"]
+
+[[case]]
+query = "which licenses is a dependency allowed to use"
+expect = ["deny.toml"]
+
+[[case]]
+query = "what does the reusable github action install and cache"
+expect = ["action.yml"]
+
+[[case]]
+query = "which nightly toolchain is pinned for generating rustdoc json"
+expect = ["Makefile"]
+
+[[case]]
+query = "how do I report a vulnerability privately"
+expect = ["SECURITY.md"]
+
+[[case]]
+query = "what commit message prefixes are accepted"
+expect = ["CONTRIBUTING.md"]
+
+[[case]]
+query = "which pages show up in the guide navigation"
+expect = ["soothfast.toml"]
+
+[[case]]
+query = "what checks run automatically before a push"
+expect = [".pre-commit-config.yaml"]
+
+[[case]]
+query = "what are the default regression thresholds for each metric"
+expect = ["docs/gating.md"]
+
+[[case]]
+query = "which tags can a rust code block carry"
+expect = ["docs/living-docs.md"]
+
+[[case]]
+query = "which environment variable points a generated client at an already running server"
+expect = ["docs/sdk.md"]
+
+[[case]]
+query = "what the function signature says about request body and response"
+expect = ["soothfast-spec/src/schema/route_sig.rs:261"]
+path_prefix = "soothfast-spec/src/schema"
+
+[[case]]
+query = "flatten a response body into dotted field paths"
+expect = ["soothfast-spec/src/probe/population.rs:16"]
+path_prefix = "soothfast-spec/src/probe"
+
+[[case]]
+query = "per method options interface"
+expect = ["soothfast-sdk/src/typescript/client.rs:268"]
+path_prefix = "soothfast-sdk/src/typescript"
+
+[[case]]
+query = "frozen dataclasses for wire types"
+expect = ["soothfast-sdk/src/python/models.rs"]
+path_prefix = "soothfast-sdk/src/python"
+
+[[case]]
+query = "contrast ratio between two colours"
+expect = ["soothfast-site/src/color.rs:72"]
+path_prefix = "soothfast-site/src"
+
+[[case]]
+query = "reuse an earlier measurement keyed by cpu model and compiler flags"
+expect = ["cargo-soothfast/src/runcache.rs:36"]
+path_prefix = "cargo-soothfast/src"
+
+[[case]]
+query = "command line flag parsing for the bench binary"
+expect = ["soothfast-measure/src/runner.rs:40"]
+path_prefix = "soothfast-measure/src"
+
+[[case]]
+query = "public surface listing an agent can read"
+expect = ["soothfast-report/src/llms.rs:29"]
+path_prefix = "soothfast-report/src"
+
+[[case]]
+query = "render the type graph back out as schema definition text"
+expect = ["soothfast-spec/src/graphql/sdl.rs:12"]
+path_prefix = "soothfast-spec/src"
+
+[[case]]
+query = "read and merge the committed fingerprint ledger"
+expect = ["soothfast-docs/src/lockfile.rs"]
+path_prefix = "soothfast-docs/src"
