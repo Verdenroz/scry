@@ -12,18 +12,36 @@
 
 ### ✨ Features
 
+- Greedy chat completions, HyDE capped at 120 tokens
+- Eval --limit for recall at deeper cutoffs
+- Golden eval sets and multi-run eval report
 - Path-aware BM25 and prefix-tolerant expansion
 - Memory write discipline in session context
 - Soothfast changelog with release-notes wiring
 
 ### 🐛 Fixes
 
+- hydrate_chunks errors on a missing id
 - Embed timeout and batch size for busy endpoints
 - Timeouts on every outbound HTTP client
 
+### ⚡ Performance
+
+- One allocation for the rescore id list, exact alloc claim
+- Allocation-free exact scan and schema guards
+- Float vectors in a plain table, coarse pass rescored from it
+- Rescore coarse candidates in one KNN query
+
 ### 📝 Documentation
 
+- Allocation claim for the dense search path
 - Add CLAUDE.md
+
+### 🔧 Internal
+
+- Tie-aware recall and recall@10 in refiner_curve
+- Store pragmas, optimize on shutdown, vacuum on prune
+- Store-layer benches and refiner recall harness
 
 ---
 
@@ -33,13 +51,17 @@
 # scry-core
 CHANGED  scry_core::search::expand_symbols (body)
 CHANGED  scry_core::search::fts_query (body)
+CHANGED  scry_core::search::query_vector (body)
+
+# scry-server
+CHANGED  scry_server::serve (body)
 ```
 
 ### 📊 Gate movement
 
 | item | metric | was | now | delta |
 |---|---|---:|---:|---:|
-| `scry_core::bench_expand_symbols` | instructions | 59001.0 | 29674.0 | -49.7% |
+| `scry_core::bench_expand_symbols` | instructions | 56874.0 | 31091.0 | -45.3% |
 | `scry_core::bench_expand_symbols` | allocs | 88.0 | 55.0 | -37.5% |
 
 
