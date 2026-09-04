@@ -72,12 +72,7 @@ impl Store {
         if !initialized {
             conn.execute_batch(SCHEMA)?;
             conn.execute_batch(&format!(
-                "CREATE VIRTUAL TABLE vec_chunks USING vec0(
-                     chunk_id INTEGER PRIMARY KEY,
-                     repo_id INTEGER PARTITION KEY,
-                     embedding float[{dim}] distance_metric=cosine
-                 );
-                 CREATE VIRTUAL TABLE vec_chunks_bit USING vec0(
+                "CREATE VIRTUAL TABLE vec_chunks_bit USING vec0(
                      chunk_id INTEGER PRIMARY KEY,
                      repo_id INTEGER PARTITION KEY,
                      embedding bit[{dim}]
@@ -89,7 +84,7 @@ impl Store {
             ))?;
             conn.execute(
                 "INSERT INTO meta (key, value) VALUES
-                 ('schema_version', '2'), ('embedding_model', ?1), ('embedding_dim', ?2)",
+                 ('schema_version', '3'), ('embedding_model', ?1), ('embedding_dim', ?2)",
                 rusqlite::params![embedding_model, dim.to_string()],
             )?;
         }
@@ -171,40 +166,59 @@ impl Store {
 
 /// v1 -> v2: the FTS index gains a relpath column so path words rank in
 /// BM25; rebuilt in place from chunks + files, vectors untouched.
+/// v2 -> v3: float vectors move from vec0 into the plain `chunk_vectors`
+/// table and repos gain a maintained chunk_count.
 fn migrate(conn: &Connection) -> Result<()> {
     let version: String = conn.query_row(
         "SELECT value FROM meta WHERE key = 'schema_version'",
         [],
         |row| row.get(0),
     )?;
-    if version != "1" {
-        return Ok(());
+    if version == "1" {
+        conn.execute_batch(MIGRATE_V1_TO_V2)?;
     }
-    conn.execute_batch(
-        "BEGIN;
-         DROP TRIGGER IF EXISTS chunks_ai;
-         DROP TRIGGER IF EXISTS chunks_ad;
-         DROP TABLE IF EXISTS chunks_fts;
-         CREATE VIRTUAL TABLE chunks_fts USING fts5(
-             content, symbol, relpath,
-             content='', contentless_delete=1
-         );
-         CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
-             INSERT INTO chunks_fts(rowid, content, symbol, relpath)
-             VALUES (new.id, new.content, new.symbol,
-                     (SELECT relpath FROM files WHERE id = new.file_id));
-         END;
-         CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
-             DELETE FROM chunks_fts WHERE rowid = old.id;
-         END;
-         INSERT INTO chunks_fts(rowid, content, symbol, relpath)
-             SELECT c.id, c.content, c.symbol, f.relpath
-             FROM chunks c JOIN files f ON f.id = c.file_id;
-         UPDATE meta SET value = '2' WHERE key = 'schema_version';
-         COMMIT;",
-    )?;
+    if version == "1" || version == "2" {
+        conn.execute_batch(MIGRATE_V2_TO_V3)?;
+    }
     Ok(())
 }
+
+const MIGRATE_V1_TO_V2: &str = "BEGIN;
+    DROP TRIGGER IF EXISTS chunks_ai;
+    DROP TRIGGER IF EXISTS chunks_ad;
+    DROP TABLE IF EXISTS chunks_fts;
+    CREATE VIRTUAL TABLE chunks_fts USING fts5(
+        content, symbol, relpath,
+        content='', contentless_delete=1
+    );
+    CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+        INSERT INTO chunks_fts(rowid, content, symbol, relpath)
+        VALUES (new.id, new.content, new.symbol,
+                (SELECT relpath FROM files WHERE id = new.file_id));
+    END;
+    CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
+        DELETE FROM chunks_fts WHERE rowid = old.id;
+    END;
+    INSERT INTO chunks_fts(rowid, content, symbol, relpath)
+        SELECT c.id, c.content, c.symbol, f.relpath
+        FROM chunks c JOIN files f ON f.id = c.file_id;
+    UPDATE meta SET value = '2' WHERE key = 'schema_version';
+    COMMIT;";
+
+const MIGRATE_V2_TO_V3: &str = "BEGIN;
+    CREATE TABLE chunk_vectors (
+        chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id),
+        embedding BLOB NOT NULL
+    );
+    INSERT INTO chunk_vectors (chunk_id, embedding)
+        SELECT chunk_id, embedding FROM vec_chunks;
+    DROP TABLE vec_chunks;
+    ALTER TABLE repos ADD COLUMN chunk_count INTEGER NOT NULL DEFAULT 0;
+    UPDATE repos SET chunk_count = (
+        SELECT count(*) FROM chunks c JOIN files f ON f.id = c.file_id
+        WHERE f.repo_id = repos.id);
+    UPDATE meta SET value = '3' WHERE key = 'schema_version';
+    COMMIT;";
 
 pub(crate) fn vector_bytes(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|v| v.to_le_bytes()).collect()
@@ -234,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_fts_to_path_aware_v2() {
+    fn migrates_v1_through_v3() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");
         {
@@ -266,6 +280,14 @@ mod tests {
                          content, symbol, content='chunks', content_rowid='id');
                      INSERT INTO chunks_fts(rowid, content, symbol)
                          SELECT id, content, symbol FROM chunks;
+                     CREATE VIRTUAL TABLE vec_chunks USING vec0(
+                         chunk_id INTEGER PRIMARY KEY,
+                         repo_id INTEGER PARTITION KEY,
+                         embedding float[8] distance_metric=cosine);
+                     INSERT INTO vec_chunks (chunk_id, repo_id, embedding)
+                         SELECT v.chunk_id, 1, v.embedding FROM chunk_vectors v;
+                     DROP TABLE chunk_vectors;
+                     ALTER TABLE repos DROP COLUMN chunk_count;
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
                 )
                 .unwrap();
@@ -279,9 +301,19 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "2");
+        assert_eq!(version, "3");
         let hits = store.lexical_search(None, "\"domains\"", 5, None).unwrap();
         assert_eq!(hits.len(), 1);
+        let copied: i64 = store
+            .conn
+            .query_row("SELECT count(*) FROM chunk_vectors", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(copied, 1);
+        let count: i64 = store
+            .conn
+            .query_row("SELECT chunk_count FROM repos", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]
