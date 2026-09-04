@@ -109,8 +109,17 @@ fn nearest(
 }
 
 fn json_id_list(ids: &[i64]) -> String {
-    let inner: Vec<String> = ids.iter().map(i64::to_string).collect();
-    format!("[{}]", inner.join(","))
+    use std::fmt::Write;
+    let mut list = String::with_capacity(ids.len() * 8 + 2);
+    list.push('[');
+    for (i, id) in ids.iter().enumerate() {
+        if i > 0 {
+            list.push(',');
+        }
+        write!(list, "{id}").unwrap();
+    }
+    list.push(']');
+    list
 }
 
 impl Store {
