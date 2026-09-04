@@ -18,6 +18,7 @@ const RECENCY_BOOST: f64 = 0.1;
 const RECENCY_DECAY_DAYS: f64 = 14.0;
 const MAX_SYMBOL_EXPANSIONS: usize = 8;
 const HYDE_TIMEOUT: Duration = Duration::from_secs(6);
+const HYDE_MAX_TOKENS: u32 = 120;
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchOptions {
@@ -179,7 +180,7 @@ pub async fn query_vector(
              appear in a codebase answering: {query}\nOnly output the snippet."
         );
         if let Ok(Ok(snippet)) =
-            tokio::time::timeout(HYDE_TIMEOUT, chat.complete(&prompt, 220)).await
+            tokio::time::timeout(HYDE_TIMEOUT, chat.complete(&prompt, HYDE_MAX_TOKENS)).await
         {
             let vectors = embedder.embed(&[query.to_string(), snippet]).await?;
             return Ok(average(&vectors));
