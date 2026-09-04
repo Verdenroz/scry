@@ -55,6 +55,10 @@ impl Store {
 
     fn init(conn: Connection, embedding_model: &str, dim: usize) -> Result<Self> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.pragma_update(None, "busy_timeout", 5000)?;
+        conn.pragma_update(None, "cache_size", -65536)?;
+        conn.pragma_update(None, "mmap_size", 268_435_456)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
 
         let initialized: bool = conn
@@ -89,12 +93,26 @@ impl Store {
                 rusqlite::params![embedding_model, dim.to_string()],
             )?;
         }
-        migrate(&conn)?;
-
         let store = Self { conn };
         store.guard_meta("embedding_model", embedding_model)?;
         store.guard_meta("embedding_dim", &dim.to_string())?;
+        migrate(&store.conn)?;
         Ok(store)
+    }
+
+    /// Merges the FTS b-trees and refreshes planner statistics; cheap
+    /// enough to run at shutdown and after a prune.
+    pub fn optimize(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "INSERT INTO chunks_fts(chunks_fts) VALUES('optimize');
+             PRAGMA optimize;",
+        )?;
+        Ok(())
+    }
+
+    pub fn vacuum(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
     }
 
     fn guard_meta(&self, key: &str, expected: &str) -> Result<()> {

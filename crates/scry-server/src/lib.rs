@@ -89,6 +89,24 @@ pub async fn serve(config: Config) -> Result<()> {
     let state = Arc::new(AppState::from_config(&config)?);
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     tracing::info!("scry serving on {listen}");
-    axum::serve(listener, router(state)).await?;
+    axum::serve(listener, router(state.clone()))
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    state.store.call(|store| store.optimize()).await?;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("sigterm handler");
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    ctrl_c.await.ok();
 }

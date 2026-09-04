@@ -27,8 +27,8 @@ CREATE TABLE chunks (
 CREATE INDEX chunks_by_file ON chunks(file_id);
 CREATE INDEX chunks_by_hash ON chunks(content_hash);
 
--- Contentless-delete is not used; relpath comes from files at trigger time
--- so path words rank in BM25 alongside content and symbols.
+-- Contentless: rows are fed by the triggers so relpath can be copied in
+-- from files and path words rank in BM25 alongside content and symbols.
 CREATE VIRTUAL TABLE chunks_fts USING fts5(
     content, symbol, relpath,
     content='', contentless_delete=1
