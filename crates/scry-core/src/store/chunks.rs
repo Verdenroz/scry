@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::params;
 
 use super::{Store, vector_bytes};
@@ -52,17 +54,9 @@ fn bytes_to_vector(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-fn cosine_distance(a: &[f32], b: &[f32]) -> f64 {
-    let (mut dot, mut na, mut nb) = (0f64, 0f64, 0f64);
-    for (x, y) in a.iter().zip(b) {
-        dot += f64::from(*x) * f64::from(*y);
-        na += f64::from(*x) * f64::from(*x);
-        nb += f64::from(*y) * f64::from(*y);
-    }
-    if na == 0.0 || nb == 0.0 {
-        return 1.0;
-    }
-    1.0 - dot / (na.sqrt() * nb.sqrt())
+fn json_id_list(ids: &[i64]) -> String {
+    let inner: Vec<String> = ids.iter().map(i64::to_string).collect();
+    format!("[{}]", inner.join(","))
 }
 
 impl Store {
@@ -220,22 +214,20 @@ impl Store {
                 .collect::<std::result::Result<_, _>>()?,
         };
 
-        let mut fetch = self
-            .conn
-            .prepare("SELECT embedding FROM vec_chunks WHERE chunk_id = ?1")?;
-        let mut hits: Vec<DenseHit> = candidates
-            .into_iter()
-            .map(|chunk_id| {
-                let bytes: Vec<u8> = fetch.query_row([chunk_id], |row| row.get(0))?;
-                Ok(DenseHit {
-                    chunk_id,
-                    distance: cosine_distance(query, &bytes_to_vector(&bytes)),
-                })
+        let ids = json_id_list(&candidates);
+        let mut rescore = self.conn.prepare(
+            "SELECT chunk_id, distance FROM vec_chunks
+             WHERE embedding MATCH ?1 AND k = ?2
+               AND chunk_id IN (SELECT value FROM json_each(?3))
+             ORDER BY distance",
+        )?;
+        let rows = rescore.query_map(params![vector_bytes(query), k as i64, ids], |row| {
+            Ok(DenseHit {
+                chunk_id: row.get(0)?,
+                distance: row.get(1)?,
             })
-            .collect::<Result<_>>()?;
-        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
-        hits.truncate(k);
-        Ok(hits)
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     pub fn sample_chunk_vectors(
@@ -285,31 +277,31 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    /// Rows come back in `chunk_ids` order.
     pub fn hydrate_chunks(&self, chunk_ids: &[i64]) -> Result<Vec<ChunkRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT c.id, f.relpath, c.start_line, c.end_line, c.symbol, c.content, f.mtime, r.key
              FROM chunks c
              JOIN files f ON f.id = c.file_id
              JOIN repos r ON r.id = f.repo_id
-             WHERE c.id = ?1",
+             WHERE c.id IN (SELECT value FROM json_each(?1))",
         )?;
-        let mut rows = Vec::with_capacity(chunk_ids.len());
-        for chunk_id in chunk_ids {
-            let row = stmt.query_row([chunk_id], |row| {
-                Ok(ChunkRow {
-                    id: row.get(0)?,
-                    relpath: row.get(1)?,
-                    start_line: row.get(2)?,
-                    end_line: row.get(3)?,
-                    symbol: row.get(4)?,
-                    content: row.get(5)?,
-                    file_mtime: row.get(6)?,
-                    repo_key: row.get(7)?,
-                })
-            })?;
-            rows.push(row);
-        }
-        Ok(rows)
+        let rows = stmt.query_map([json_id_list(chunk_ids)], |row| {
+            Ok(ChunkRow {
+                id: row.get(0)?,
+                relpath: row.get(1)?,
+                start_line: row.get(2)?,
+                end_line: row.get(3)?,
+                symbol: row.get(4)?,
+                content: row.get(5)?,
+                file_mtime: row.get(6)?,
+                repo_key: row.get(7)?,
+            })
+        })?;
+        let mut by_id: HashMap<i64, ChunkRow> = rows
+            .map(|row| row.map(|r| (r.id, r)))
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(chunk_ids.iter().filter_map(|id| by_id.remove(id)).collect())
     }
 
     pub fn symbols(&self, repo_id: Option<i64>) -> Result<Vec<String>> {
@@ -320,5 +312,69 @@ impl Store {
         )?;
         let rows = stmt.query_map([repo_id], |row| row.get(0))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIM: usize = 16;
+
+    fn vector(seed: u64) -> Vec<f32> {
+        let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        (0..DIM)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                ((x >> 40) as f32 / (1u64 << 24) as f32) - 0.5
+            })
+            .collect()
+    }
+
+    fn store_with_chunks(n: usize) -> (Store, i64) {
+        let mut store = Store::open_in_memory("test", DIM).unwrap();
+        let repo_id = store.upsert_repo("test/repo").unwrap();
+        for file in 0..n.div_ceil(100) {
+            let file_id = store
+                .upsert_file(repo_id, &format!("f{file}.rs"), "0", 1, 0)
+                .unwrap();
+            let chunks: Vec<NewChunk> = (file * 100..((file + 1) * 100).min(n))
+                .map(|i| NewChunk {
+                    start_line: 1,
+                    end_line: 1,
+                    symbol: None,
+                    content: format!("chunk {i}"),
+                    content_hash: format!("{i:016x}"),
+                    embedding: vector(i as u64 + 1),
+                })
+                .collect();
+            store
+                .replace_file_chunks(file_id, repo_id, &chunks)
+                .unwrap();
+        }
+        (store, repo_id)
+    }
+
+    #[test]
+    fn coarse_path_above_threshold_finds_the_exact_nearest() {
+        let n = BINARY_COARSE_THRESHOLD as usize + 100;
+        let (store, repo_id) = store_with_chunks(n);
+        let query = vector(4242);
+        let exact = store.dense_search_exact(Some(repo_id), &query, 10).unwrap();
+        let hits = store.dense_search(Some(repo_id), &query, 10).unwrap();
+        assert_eq!(hits.len(), 10);
+        assert_eq!(hits[0].chunk_id, exact[0].chunk_id);
+        assert!(hits[0].distance < 1e-6);
+        assert!(hits.windows(2).all(|w| w[0].distance <= w[1].distance));
+    }
+
+    #[test]
+    fn hydrate_keeps_requested_order() {
+        let (store, _) = store_with_chunks(5);
+        let rows = store.hydrate_chunks(&[4, 2, 5]).unwrap();
+        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        assert_eq!(ids, vec![4, 2, 5]);
     }
 }
