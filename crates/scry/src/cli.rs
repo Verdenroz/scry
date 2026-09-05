@@ -14,7 +14,8 @@ const USAGE: &str = "scry - self-hosted semantic code search
 USAGE:
   scry \"natural language query\" [path]   search the current repo
   scry serve                             run the index server
-  scry index                             sync this repo to the server
+  scry index [--full]                    sync this repo to the server
+                                         (--full re-chunks every file)
   scry watch                             sync continuously while you work
   scry status                            show server index counts
   scry eval <cases.toml> [--runs N] [--limit N]  score retrieval against a golden set
@@ -98,7 +99,7 @@ pub async fn dispatch(args: &[String]) -> Result<()> {
             Ok(())
         }
         Some("serve") => commands::serve::run().await,
-        Some("index") => commands::index::run().await,
+        Some("index") => commands::index::run(&args[1..]).await,
         Some("watch") => commands::watch::run().await,
         Some("status") => commands::status::run().await,
         Some("eval") => commands::eval::run(&args[1..]).await,

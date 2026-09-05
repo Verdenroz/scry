@@ -11,7 +11,8 @@ use super::repo_context;
 const BATCH_FILES: usize = 16;
 const BATCH_BYTES: usize = 2 * 1024 * 1024;
 
-pub async fn run() -> Result<()> {
+pub async fn run(args: &[String]) -> Result<()> {
+    let full = args.iter().any(|a| a == "--full");
     let ctx = repo_context()?;
     if super::at_or_above_home(&ctx.identity.root) {
         bail!(
@@ -19,7 +20,7 @@ pub async fn run() -> Result<()> {
             ctx.identity.root.display()
         );
     }
-    let outcome = sync_repo(&ctx).await?;
+    let outcome = sync_repo(&ctx, full).await?;
     println!(
         "indexed {} files ({} embedded, {} reused chunks), deleted {}, unchanged {}",
         outcome.indexed_files,
@@ -40,7 +41,9 @@ pub struct SyncOutcome {
     pub unchanged: usize,
 }
 
-pub async fn sync_repo(ctx: &RepoContext) -> Result<SyncOutcome> {
+/// `full` re-uploads every file regardless of the manifest, which is how
+/// a chunker change reaches files whose content has not changed.
+pub async fn sync_repo(ctx: &RepoContext, full: bool) -> Result<SyncOutcome> {
     let entries = walk_repo(&ctx.identity.root, ctx.config.index.max_file_size)?;
     if entries.len() > ctx.config.index.max_file_count {
         bail!(
@@ -72,7 +75,7 @@ pub async fn sync_repo(ctx: &RepoContext) -> Result<SyncOutcome> {
     for entry in &entries {
         let path = ctx.identity.root.join(&entry.relpath);
         let hash = hashing::hex(hashing::hash_file(&path)?);
-        if manifest.get(&entry.relpath) == Some(&hash) {
+        if !full && manifest.get(&entry.relpath) == Some(&hash) {
             outcome.unchanged += 1;
             continue;
         }

@@ -28,7 +28,8 @@ embedded with a `repo > path > symbol` header for context. Comments and
 attributes directly above a definition stay with it, and spans under four
 lines merge into a neighbour, so a bare `#[cfg]` line or a one-line `mod`
 declaration never becomes its own hit. Files whose first lines carry the
-`@generated` marker are not chunked at all.
+`@generated` marker are not chunked at all. A chunker change reaches
+already-indexed files with `scry index --full`.
 
 Measured hot paths are gated in CI by soothfast:
 
