@@ -24,7 +24,10 @@ that query, and `--no-rerank` skips it per query.
 
 Chunks are function-level where a tree-sitter grammar exists (16
 languages), blank-line-snapped windows elsewhere, and each chunk is
-embedded with a `repo > path > symbol` header for context.
+embedded with a `repo > path > symbol` header for context. Comments and
+attributes directly above a definition stay with it, and spans under four
+lines merge into a neighbour, so a bare `#[cfg]` line or a one-line `mod`
+declaration never becomes its own hit.
 
 Measured hot paths are gated in CI by soothfast:
 

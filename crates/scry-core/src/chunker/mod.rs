@@ -3,6 +3,7 @@
 //! falls back to blank-line-snapped windows. Line numbers are 1-based and
 //! inclusive so hits print as `path:start-end`.
 
+mod coalesce;
 pub mod line_window;
 mod treesitter;
 
@@ -14,6 +15,14 @@ pub struct Chunk {
     pub end_line: u32,
     pub symbol: Option<String>,
     pub content: String,
+}
+
+/// Half-open line range `[start, end)` into a file, 0-based.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Span {
+    pub start: usize,
+    pub end: usize,
+    pub symbol: Option<String>,
 }
 
 pub fn chunk_file(relpath: &str, content: &str) -> Vec<Chunk> {
@@ -28,16 +37,12 @@ pub fn chunk_file(relpath: &str, content: &str) -> Vec<Chunk> {
     }
 }
 
-pub(crate) fn lines_chunk(
-    lines: &[&str],
-    start: usize,
-    end: usize,
-    symbol: Option<String>,
-) -> Chunk {
+pub(crate) fn lines_chunk(lines: &[&str], span: Span) -> Chunk {
     Chunk {
-        start_line: start as u32 + 1,
-        end_line: end as u32,
-        symbol,
-        content: lines[start..end].join("\n"),
+        start_line: span.start as u32 + 1,
+        end_line: span.end as u32,
+        content: lines[span.start..span.end].join("\n"),
+        symbol: span.symbol,
     }
 }
+

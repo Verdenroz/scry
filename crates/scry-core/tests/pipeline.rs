@@ -18,7 +18,7 @@ fn fixture_repo(root: &Path) {
     write(
         root,
         "src/config.rs",
-        "pub struct Settings {\n    pub port: u16,\n}\n\npub fn load_configuration(path: &str) -> Settings {\n    let text = std::fs::read_to_string(path).unwrap();\n    parse_settings(&text)\n}\n\nfn parse_settings(text: &str) -> Settings {\n    Settings { port: text.trim().parse().unwrap() }\n}\n",
+        "pub struct Settings {\n    pub port: u16,\n    pub host: String,\n    pub verbose: bool,\n}\n\npub fn load_configuration(path: &str) -> Settings {\n    let text = std::fs::read_to_string(path).unwrap();\n    parse_settings(&text)\n}\n\nfn parse_settings(text: &str) -> Settings {\n    let port = text.trim().parse().unwrap();\n    let host = String::from(\"localhost\");\n    Settings { port, host, verbose: false }\n}\n",
     );
     write(
         root,
@@ -72,7 +72,7 @@ async fn index_search_and_incremental_reindex() {
     write(
         dir.path(),
         "src/config.rs",
-        "pub struct Settings {\n    pub port: u16,\n}\n\npub fn load_configuration(path: &str) -> Settings {\n    let text = std::fs::read_to_string(path).unwrap();\n    parse_settings(&text)\n}\n\nfn parse_settings(text: &str) -> Settings {\n    Settings { port: text.trim().parse().unwrap_or(8080) }\n}\n",
+        "pub struct Settings {\n    pub port: u16,\n    pub host: String,\n    pub verbose: bool,\n}\n\npub fn load_configuration(path: &str) -> Settings {\n    let text = std::fs::read_to_string(path).unwrap();\n    parse_settings(&text)\n}\n\nfn parse_settings(text: &str) -> Settings {\n    let port = text.trim().parse().unwrap_or(8080);\n    let host = String::from(\"localhost\");\n    Settings { port, host, verbose: false }\n}\n",
     );
     let third = index_repo(&mut store, &embedder, REPO_KEY, dir.path(), &config)
         .await
