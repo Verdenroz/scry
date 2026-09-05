@@ -18,6 +18,26 @@ fn truncated<T>(mut hits: Vec<T>, limit: usize) -> Vec<T> {
     hits
 }
 
+/// The query's vector, from the cache when this server has embedded the
+/// same text before.
+pub(super) async fn query_vector_cached(
+    state: &AppState,
+    query: &str,
+) -> scry_core::Result<Vec<f32>> {
+    if let Some(vector) = state.query_cache.get(query) {
+        return Ok(vector);
+    }
+    let vector = query_vector(
+        state.embedder.as_ref(),
+        state.chat.as_ref(),
+        state.hyde,
+        query,
+    )
+    .await?;
+    state.query_cache.insert(query, vector.clone());
+    Ok(vector)
+}
+
 /// How many fused candidates to retrieve so the reranker, when it runs,
 /// sees its full `top_n` pool.
 pub(super) fn pool_size(state: &AppState, rerank: bool, limit: usize) -> usize {
@@ -56,13 +76,7 @@ pub async fn search(
     State(state): State<Arc<AppState>>,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, ApiError> {
-    let vector = query_vector(
-        state.embedder.as_ref(),
-        state.chat.as_ref(),
-        state.hyde,
-        &request.query,
-    )
-    .await?;
+    let vector = query_vector_cached(&state, &request.query).await?;
     let pool = pool_size(&state, request.rerank, request.limit);
     let (query, limit, rerank) = (request.query.clone(), request.limit, request.rerank);
     let hits = state

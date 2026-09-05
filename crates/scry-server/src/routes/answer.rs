@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use scry_core::search::{SearchOptions, query_vector, search_with_vector};
+use scry_core::search::{SearchOptions, search_with_vector};
 
 use crate::AppState;
 use crate::api::{AnswerRequest, AnswerResponse, Citation};
@@ -29,13 +29,7 @@ pub async fn answer(
 
     let mut sources: Vec<Source> = Vec::new();
     if let Some(repo_key) = &request.repo_key {
-        let vector = query_vector(
-            state.embedder.as_ref(),
-            state.chat.as_ref(),
-            state.hyde,
-            &request.query,
-        )
-        .await?;
+        let vector = super::search::query_vector_cached(&state, &request.query).await?;
         let repo_key = repo_key.clone();
         let query = request.query.clone();
         let pool = super::search::pool_size(&state, request.rerank, LOCAL_SOURCES);

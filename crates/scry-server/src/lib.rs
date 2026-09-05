@@ -4,10 +4,12 @@
 pub mod api;
 mod auth;
 mod error;
+mod query_cache;
 mod routes;
 mod store_actor;
 pub mod tavily;
 
+pub use query_cache::QueryCache;
 pub use store_actor::StoreHandle;
 
 use std::sync::Arc;
@@ -23,6 +25,7 @@ use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
 
 const MAX_SYNC_BODY_BYTES: usize = 64 * 1024 * 1024;
+const QUERY_CACHE_ENTRIES: usize = 256;
 
 pub struct AppState {
     pub store: StoreHandle,
@@ -34,6 +37,7 @@ pub struct AppState {
     pub memory_config: MemoryConfig,
     pub tavily: Option<tavily::TavilyClient>,
     pub rerank: Option<RerankClient>,
+    pub query_cache: QueryCache,
 }
 
 impl AppState {
@@ -57,6 +61,7 @@ impl AppState {
             memory_config: config.memory.clone(),
             tavily: config.tavily.clone().map(tavily::TavilyClient::new),
             rerank: config.rerank.clone().map(RerankClient::new),
+            query_cache: QueryCache::new(QUERY_CACHE_ENTRIES),
         }
     }
 }

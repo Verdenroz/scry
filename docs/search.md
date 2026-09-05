@@ -26,6 +26,9 @@ score stays the dense cosine. A reranker that errors or takes longer than
 six seconds is skipped for that query, and `--no-rerank` skips it per
 query.
 
+The server keeps the last 256 query vectors, so a repeated query skips
+HyDE and embedding and pays only for retrieval and the reranker.
+
 Chunks are function-level where a tree-sitter grammar exists (16
 languages), blank-line-snapped windows elsewhere, and each chunk is
 embedded with a `repo > path > symbol` header for context. Comments and
