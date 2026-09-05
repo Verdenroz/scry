@@ -12,6 +12,7 @@
 
 ### ✨ Features
 
+- Rerank stage fused as a weighted RRF leg (#4)
 - Greedy chat completions, HyDE capped at 120 tokens
 - Eval --limit for recall at deeper cutoffs
 - Golden eval sets and multi-run eval report
@@ -49,11 +50,22 @@
 
 ```
 # scry-core
+ADDED    scry_core::config::RerankConfig
+ADDED    scry_core::rerank
+ADDED    scry_core::rerank::RerankClient
+ADDED    scry_core::rerank::RerankResult
+ADDED    scry_core::rerank::fuse
+ADDED    scry_core::search::RRF_K
+CHANGED  scry_core::Error (body)
+CHANGED  scry_core::config::Config (body)
+CHANGED  scry_core::error::Error (body)
 CHANGED  scry_core::search::expand_symbols (body)
 CHANGED  scry_core::search::fts_query (body)
 CHANGED  scry_core::search::query_vector (body)
 
 # scry-server
+CHANGED  scry_server::AppState (body)
+CHANGED  scry_server::api::SearchRequest (body)
 CHANGED  scry_server::serve (body)
 ```
 
@@ -61,7 +73,7 @@ CHANGED  scry_server::serve (body)
 
 | item | metric | was | now | delta |
 |---|---|---:|---:|---:|
-| `scry_core::bench_expand_symbols` | instructions | 56874.0 | 31091.0 | -45.3% |
+| `scry_core::bench_expand_symbols` | instructions | 58528.0 | 31276.0 | -46.6% |
 | `scry_core::bench_expand_symbols` | allocs | 88.0 | 55.0 | -37.5% |
 
 
