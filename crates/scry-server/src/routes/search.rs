@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use scry_core::index::embed_input;
 use scry_core::rerank::fuse;
 use scry_core::search::{SearchHit, SearchOptions, query_vector, search_with_vector};
 
@@ -39,10 +38,7 @@ pub(super) async fn reranked(
     let Some(client) = state.rerank.as_ref().filter(|_| rerank) else {
         return hits;
     };
-    let documents: Vec<String> = hits
-        .iter()
-        .map(|h| embed_input(&h.repo_key, &h.relpath, h.symbol.as_deref(), &h.content))
-        .collect();
+    let documents: Vec<String> = hits.iter().map(|h| client.document(h)).collect();
     match tokio::time::timeout(RERANK_BUDGET, client.rerank(query, &documents)).await {
         Ok(Ok(ranked)) => fuse(hits, &ranked, client.weight(), limit),
         Ok(Err(error)) => {
