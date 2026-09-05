@@ -4,7 +4,7 @@ use axum::Json;
 use axum::extract::State;
 use scry_core::index::embed_input;
 use scry_core::rerank::fuse;
-use scry_core::search::{SearchOptions, query_vector, search_with_vector};
+use scry_core::search::{SearchHit, SearchOptions, query_vector, search_with_vector};
 
 use crate::AppState;
 use crate::api::{Hit, SearchRequest, SearchResponse};
@@ -19,6 +19,43 @@ fn truncated<T>(mut hits: Vec<T>, limit: usize) -> Vec<T> {
     hits
 }
 
+/// How many fused candidates to retrieve so the reranker, when it runs,
+/// sees its full `top_n` pool.
+pub(super) fn pool_size(state: &AppState, rerank: bool, limit: usize) -> usize {
+    state
+        .rerank
+        .as_ref()
+        .filter(|_| rerank)
+        .map_or(limit, |client| limit.max(client.top_n()))
+}
+
+pub(super) async fn reranked(
+    state: &AppState,
+    rerank: bool,
+    query: &str,
+    hits: Vec<SearchHit>,
+    limit: usize,
+) -> Vec<SearchHit> {
+    let Some(client) = state.rerank.as_ref().filter(|_| rerank) else {
+        return hits;
+    };
+    let documents: Vec<String> = hits
+        .iter()
+        .map(|h| embed_input(&h.repo_key, &h.relpath, h.symbol.as_deref(), &h.content))
+        .collect();
+    match tokio::time::timeout(RERANK_BUDGET, client.rerank(query, &documents)).await {
+        Ok(Ok(ranked)) => fuse(hits, &ranked, client.weight(), limit),
+        Ok(Err(error)) => {
+            tracing::warn!("rerank failed, returning fused order: {error}");
+            truncated(hits, limit)
+        }
+        Err(_) => {
+            tracing::warn!("rerank exceeded {RERANK_BUDGET:?}, returning fused order");
+            truncated(hits, limit)
+        }
+    }
+}
+
 pub async fn search(
     State(state): State<Arc<AppState>>,
     Json(request): Json<SearchRequest>,
@@ -30,9 +67,8 @@ pub async fn search(
         &request.query,
     )
     .await?;
-    let rerank = state.rerank.as_ref().filter(|_| request.rerank);
-    let pool = rerank.map_or(request.limit, |client| request.limit.max(client.top_n()));
-    let (query, limit) = (request.query.clone(), request.limit);
+    let pool = pool_size(&state, request.rerank, request.limit);
+    let (query, limit, rerank) = (request.query.clone(), request.limit, request.rerank);
     let hits = state
         .store
         .call(move |store| {
@@ -51,26 +87,7 @@ pub async fn search(
         })
         .await?
         .ok_or_else(|| ApiError::NotFound("repo not indexed".to_string()))?;
-    let hits = match rerank {
-        Some(client) => {
-            let documents: Vec<String> = hits
-                .iter()
-                .map(|h| embed_input(&h.repo_key, &h.relpath, h.symbol.as_deref(), &h.content))
-                .collect();
-            match tokio::time::timeout(RERANK_BUDGET, client.rerank(&query, &documents)).await {
-                Ok(Ok(ranked)) => fuse(hits, &ranked, client.weight(), limit),
-                Ok(Err(error)) => {
-                    tracing::warn!("rerank failed, returning fused order: {error}");
-                    truncated(hits, limit)
-                }
-                Err(_) => {
-                    tracing::warn!("rerank exceeded {RERANK_BUDGET:?}, returning fused order");
-                    truncated(hits, limit)
-                }
-            }
-        }
-        None => hits,
-    };
+    let hits = reranked(&state, rerank, &query, hits, limit).await;
     Ok(Json(SearchResponse {
         hits: hits
             .into_iter()

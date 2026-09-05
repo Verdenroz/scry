@@ -10,7 +10,7 @@ use crate::error::ApiError;
 
 const LOCAL_SOURCES: usize = 8;
 const WEB_SOURCES: usize = 5;
-const SNIPPET_CHARS: usize = 1200;
+const SNIPPET_CHARS: usize = 1600;
 
 struct Source {
     label: String,
@@ -38,6 +38,7 @@ pub async fn answer(
         .await?;
         let repo_key = repo_key.clone();
         let query = request.query.clone();
+        let pool = super::search::pool_size(&state, request.rerank, LOCAL_SOURCES);
         let hits = state
             .store
             .call(move |store| {
@@ -45,12 +46,15 @@ pub async fn answer(
                     return Ok(Vec::new());
                 };
                 let options = SearchOptions {
-                    limit: LOCAL_SOURCES,
+                    limit: pool,
                     path_prefix: None,
                 };
                 search_with_vector(store, Some(repo_id), &query, &vector, &options)
             })
             .await?;
+        let hits =
+            super::search::reranked(&state, request.rerank, &request.query, hits, LOCAL_SOURCES)
+                .await;
         sources.extend(hits.into_iter().map(|hit| Source {
             label: format!("{}:{}-{}", hit.relpath, hit.start_line, hit.end_line),
             text: truncate(&hit.content, SNIPPET_CHARS),
@@ -72,8 +76,11 @@ pub async fn answer(
     }
 
     let mut prompt = String::from(
-        "Answer the question using only the numbered sources below. Cite every \
-         claim with [N] markers referring to source numbers. Be concise.\n\n",
+        "Answer the question using only the numbered sources below: excerpts from \
+         the repository's files, labelled path:start-end, or web pages labelled by \
+         URL. Cite every claim with [N] markers referring to source numbers. If the \
+         sources do not settle the question, say what is missing instead of \
+         guessing. Be concise.\n\n",
     );
     for (i, source) in sources.iter().enumerate() {
         prompt.push_str(&format!(
