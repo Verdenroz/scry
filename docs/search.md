@@ -17,14 +17,26 @@ a greedy near-duplicate filter before the final ranking.
 
 With a `[rerank]` endpoint configured, the fused top `top_n` candidates
 are scored by a cross-encoder and its ranking joins the fusion as a
-third reciprocal-rank leg with `weight` (k=60, default 1.0). The
-reranker changes order only; the displayed score stays the dense cosine.
-A reranker that errors or takes longer than six seconds is skipped for
-that query, and `--no-rerank` skips it per query.
+third reciprocal-rank leg with `weight` (k=60, default 1.0). Each
+document is cut to `max_chars` (default 3000) before scoring; the header
+and the start of a chunk carry the signal, and shorter inputs are both
+faster and, measured on the finance-query golden set, better on recall
+than full-length ones. The reranker changes order only; the displayed
+score stays the dense cosine. A reranker that errors or takes longer than
+six seconds is skipped for that query, and `--no-rerank` skips it per
+query.
+
+The server keeps the last 256 query vectors, so a repeated query skips
+HyDE and embedding and pays only for retrieval and the reranker.
 
 Chunks are function-level where a tree-sitter grammar exists (16
 languages), blank-line-snapped windows elsewhere, and each chunk is
-embedded with a `repo > path > symbol` header for context.
+embedded with a `repo > path > symbol` header for context. Comments and
+attributes directly above a definition stay with it, and spans under four
+lines merge into a neighbour, so a bare `#[cfg]` line or a one-line `mod`
+declaration never becomes its own hit. Files whose first lines carry the
+`@generated` marker are not chunked at all. A chunker change reaches
+already-indexed files with `scry index --full`.
 
 Measured hot paths are gated in CI by soothfast:
 

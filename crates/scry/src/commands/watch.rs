@@ -15,7 +15,7 @@ pub async fn run() -> Result<()> {
         );
     }
 
-    let outcome = sync_repo(&ctx).await?;
+    let outcome = sync_repo(&ctx, false).await?;
     println!(
         "watching {} (key {}): {} files indexed, {} unchanged",
         ctx.identity.root.display(),
@@ -38,7 +38,7 @@ pub async fn run() -> Result<()> {
         .watch(&ctx.identity.root, RecursiveMode::Recursive)?;
 
     while rx.recv().await.is_some() {
-        match sync_repo(&ctx).await {
+        match sync_repo(&ctx, false).await {
             Ok(outcome) if outcome.indexed_files + outcome.deleted_files > 0 => {
                 println!(
                     "synced: {} files indexed, {} deleted",

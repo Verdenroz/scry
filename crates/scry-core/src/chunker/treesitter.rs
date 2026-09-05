@@ -1,6 +1,7 @@
 use tree_sitter::{Node, Parser};
 
-use super::{Chunk, line_window, lines_chunk};
+use super::coalesce::coalesce;
+use super::{Chunk, Span, line_window, lines_chunk};
 
 /// Definitions longer than this are not emitted whole; the walk descends
 /// into them so nested definitions become their own chunks.
@@ -208,28 +209,49 @@ fn def_name(language: Language, node: Node<'_>, source: &str) -> Option<String> 
     named.utf8_text(source.as_bytes()).ok().map(str::to_string)
 }
 
+/// Comments, attributes, and decorators sitting directly above a
+/// definition belong to it; the definition's span grows upward over them.
+fn is_trivia(kind: &str) -> bool {
+    kind.contains("comment") || kind.contains("attribute") || kind.contains("decorator")
+}
+
 struct Walker<'a> {
     language: Language,
     source: &'a str,
-    defs: Vec<(usize, usize, Option<String>)>,
+    defs: Vec<Span>,
 }
 
 impl Walker<'_> {
     fn walk(&mut self, node: Node<'_>, path: &[String]) {
         let mut cursor = node.walk();
+        let mut trivia_start: Option<usize> = None;
+        let mut last_end_row = 0;
         for child in node.named_children(&mut cursor) {
+            let start = child.start_position().row;
+            let end = child.end_position().row + 1;
+            let adjacent = trivia_start.is_some() && last_end_row >= start;
+            last_end_row = end;
+            if is_trivia(child.kind()) {
+                if !adjacent {
+                    trivia_start = Some(start);
+                }
+                continue;
+            }
+            let span_start = if adjacent { trivia_start.take() } else { None };
+            trivia_start = None;
             if !self.language.is_def(child.kind()) {
                 self.walk(child, path);
                 continue;
             }
-            let start = child.start_position().row;
-            let end = child.end_position().row + 1;
             let name = def_name(self.language, child, self.source);
             if end - start <= MAX_DEF_LINES {
                 let mut symbol = path.to_vec();
                 symbol.extend(name);
-                self.defs
-                    .push((start, end, (!symbol.is_empty()).then(|| symbol.join(" > "))));
+                self.defs.push(Span {
+                    start: span_start.unwrap_or(start),
+                    end,
+                    symbol: (!symbol.is_empty()).then(|| symbol.join(" > ")),
+                });
             } else {
                 let mut inner = path.to_vec();
                 inner.extend(name);
@@ -251,29 +273,32 @@ pub fn chunk(language: Language, content: &str) -> Option<Vec<Chunk>> {
     };
     walker.walk(tree.root_node(), &[]);
     let mut defs = walker.defs;
-    defs.sort_by_key(|(start, _, _)| *start);
+    defs.sort_by_key(|def| def.start);
 
     let lines: Vec<&str> = content.lines().collect();
-    let mut chunks = Vec::new();
+    let mut spans = Vec::new();
     let mut covered = 0;
-    for (start, end, symbol) in defs {
-        if start < covered {
+    for def in defs {
+        let start = def.start.max(covered);
+        let end = def.end.min(lines.len());
+        if start >= end {
             continue;
         }
-        if start > covered {
-            chunks.extend(line_window::chunk_lines(&lines, covered, start, None));
-        }
-        let end = end.min(lines.len());
-        if start < end {
-            chunks.push(lines_chunk(&lines, start, end, symbol));
-        }
-        covered = covered.max(end);
+        spans.extend(line_window::spans(&lines, covered, start));
+        spans.push(Span {
+            start,
+            end,
+            symbol: def.symbol,
+        });
+        covered = end;
     }
-    if covered < lines.len() {
-        chunks.extend(line_window::chunk_lines(&lines, covered, lines.len(), None));
-    }
-    chunks.sort_by_key(|chunk| chunk.start_line);
-    Some(chunks)
+    spans.extend(line_window::spans(&lines, covered, lines.len()));
+    Some(
+        coalesce(spans)
+            .into_iter()
+            .map(|span| lines_chunk(&lines, span))
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -284,17 +309,50 @@ mod tests {
         chunks.iter().filter_map(|c| c.symbol.as_deref()).collect()
     }
 
+    fn by_symbol<'a>(chunks: &'a [Chunk], symbol: &str) -> &'a Chunk {
+        chunks
+            .iter()
+            .find(|c| c.symbol.as_deref() == Some(symbol))
+            .unwrap()
+    }
+
     #[test]
     fn rust_functions_become_symbol_chunks() {
-        let source = "use std::io;\n\nfn alpha() {\n    println!(\"a\");\n}\n\nstruct Beta {\n    field: u32,\n}\n";
+        let source = "use std::io;\n\nfn alpha() {\n    let a = 1;\n    let b = 2;\n    println!(\"{a}{b}\");\n}\n\nstruct Beta {\n    field: u32,\n    other: u32,\n    third: u32,\n}\n";
         let chunks = chunk(Language::Rust, source).unwrap();
         assert_eq!(symbols(&chunks), ["alpha", "Beta"]);
-        let alpha = chunks
-            .iter()
-            .find(|c| c.symbol.as_deref() == Some("alpha"))
-            .unwrap();
-        assert_eq!((alpha.start_line, alpha.end_line), (3, 5));
+        let alpha = by_symbol(&chunks, "alpha");
+        assert_eq!((alpha.start_line, alpha.end_line), (1, 7));
         assert!(alpha.content.contains("println!"));
+        assert_eq!(by_symbol(&chunks, "Beta").start_line, 9);
+    }
+
+    #[test]
+    fn doc_comments_and_attributes_stay_with_their_definition() {
+        let source = "fn filler() {\n    1;\n    2;\n    3;\n}\n\n/// Documents alpha.\n/// Second line.\n#[cfg(feature = \"x\")]\nfn alpha() {\n    let a = 1;\n    let b = 2;\n    a + b;\n}\n";
+        let chunks = chunk(Language::Rust, source).unwrap();
+        let alpha = by_symbol(&chunks, "alpha");
+        assert_eq!((alpha.start_line, alpha.end_line), (7, 14));
+        assert!(alpha.content.starts_with("/// Documents alpha."));
+        assert_eq!(by_symbol(&chunks, "filler").end_line, 5);
+    }
+
+    #[test]
+    fn detached_comments_are_not_pulled_in() {
+        let source =
+            "// unrelated note\n\nfn alpha() {\n    let a = 1;\n    let b = 2;\n    a + b;\n}\n";
+        let chunks = chunk(Language::Rust, source).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].start_line, 1);
+    }
+
+    #[test]
+    fn one_line_declarations_merge_into_one_chunk() {
+        let source = "pub(crate) mod cftc;\n#[cfg(feature = \"crypto\")]\npub(crate) mod coingecko;\npub(crate) mod edgar;\n#[cfg(feature = \"finra\")]\npub(crate) mod finra;\n";
+        let chunks = chunk(Language::Rust, source).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!((chunks[0].start_line, chunks[0].end_line), (1, 6));
+        assert_eq!(chunks[0].symbol, None);
     }
 
     #[test]
@@ -315,17 +373,19 @@ mod tests {
             .collect();
         let source = format!("struct S;\n\nimpl S {{\n{body}}}\n");
         let chunks = chunk(Language::Rust, &source).unwrap();
-        assert!(chunks.iter().any(|c| c.symbol.as_deref() == Some("S > m0")));
         assert!(
             chunks
                 .iter()
-                .any(|c| c.symbol.as_deref() == Some("S > m69"))
+                .all(|c| c.symbol.as_deref().is_some_and(|s| s.starts_with("S")))
         );
+        assert!(chunks.iter().any(|c| c.content.contains("fn m0(")));
+        assert!(chunks.iter().any(|c| c.content.contains("fn m69(")));
+        assert!(chunks.iter().all(|c| c.end_line - c.start_line + 1 >= 4));
     }
 
     #[test]
     fn python_class_and_decorated_defs() {
-        let source = "import os\n\nclass Greeter:\n    def hello(self):\n        return 'hi'\n\n@cached\ndef top():\n    return 1\n";
+        let source = "import os\n\nclass Greeter:\n    def hello(self):\n        return 'hi'\n\n    def bye(self):\n        return 'bye'\n\n@cached\ndef top():\n    a = 1\n    b = 2\n    return a + b\n";
         let chunks = chunk(Language::Python, source).unwrap();
         assert!(symbols(&chunks).contains(&"Greeter"));
         assert!(symbols(&chunks).contains(&"top"));
@@ -333,7 +393,7 @@ mod tests {
 
     #[test]
     fn typescript_interfaces_and_functions() {
-        let source = "export interface Config {\n  port: number;\n}\n\nexport function load(): Config {\n  return { port: 1 };\n}\n";
+        let source = "export interface Config {\n  port: number;\n  host: string;\n  tls: boolean;\n}\n\nexport function load(): Config {\n  const port = 1;\n  const host = 'x';\n  return { port, host, tls: false };\n}\n";
         let chunks = chunk(Language::Typescript, source).unwrap();
         assert!(symbols(&chunks).contains(&"Config"));
         assert!(symbols(&chunks).contains(&"load"));
@@ -341,7 +401,7 @@ mod tests {
 
     #[test]
     fn c_functions_resolve_names_through_declarators() {
-        let source = "#include <stdio.h>\n\nint add(int a, int b) {\n    return a + b;\n}\n";
+        let source = "#include <stdio.h>\n\nint add(int a, int b) {\n    int c = a + b;\n    printf(\"%d\", c);\n    return c;\n}\n";
         let chunks = chunk(Language::C, source).unwrap();
         assert!(symbols(&chunks).contains(&"add"));
     }
@@ -355,7 +415,7 @@ mod tests {
 
     #[test]
     fn kotlin_functions_and_classes() {
-        let source = "class Greeter {\n    fun hello(): String {\n        return \"hi\"\n    }\n}\n\nfun top(): Int = 1\n";
+        let source = "class Greeter {\n    fun hello(): String {\n        return \"hi\"\n    }\n}\n\nfun top(): Int {\n    val a = 1\n    val b = 2\n    return a + b\n}\n";
         let chunks = chunk(Language::Kotlin, source).unwrap();
         assert!(symbols(&chunks).contains(&"Greeter"));
         assert!(symbols(&chunks).contains(&"top"));
@@ -370,19 +430,17 @@ mod tests {
 
     #[test]
     fn bash_functions() {
-        let source = "#!/bin/bash\n\ndeploy() {\n  echo deploying\n}\n";
+        let source = "#!/bin/bash\n\ndeploy() {\n  echo deploying\n  echo again\n  echo done\n}\n";
         let chunks = chunk(Language::Bash, source).unwrap();
         assert!(symbols(&chunks).contains(&"deploy"));
     }
 
     #[test]
     fn gap_lines_still_covered() {
-        let source = "const A: u32 = 1;\nconst B: u32 = 2;\n\nfn used() -> u32 {\n    A + B\n}\n";
+        let source = "const A: u32 = 1;\nconst B: u32 = 2;\n\nfn used() -> u32 {\n    let a = A;\n    let b = B;\n    a + b\n}\n";
         let chunks = chunk(Language::Rust, source).unwrap();
-        assert!(
-            chunks
-                .iter()
-                .any(|c| c.symbol.is_none() && c.content.contains("const A"))
-        );
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].content.contains("const A"));
+        assert_eq!(chunks[0].symbol.as_deref(), Some("used"));
     }
 }

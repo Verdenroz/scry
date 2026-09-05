@@ -60,6 +60,7 @@ pub async fn run(args: SearchArgs) -> Result<()> {
                 query: args.query,
                 repo_key: scope.repo_key,
                 web: args.web,
+                rerank: args.rerank,
             })
             .await?;
         println!("{}\n", response.answer);

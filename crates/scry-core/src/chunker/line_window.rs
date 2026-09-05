@@ -1,4 +1,4 @@
-use super::{Chunk, lines_chunk};
+use super::{Chunk, Span, lines_chunk};
 
 pub const WINDOW: usize = 40;
 pub const OVERLAP: usize = 10;
@@ -6,13 +6,16 @@ const SNAP: usize = 5;
 
 pub fn chunk(content: &str) -> Vec<Chunk> {
     let lines: Vec<&str> = content.lines().collect();
-    chunk_lines(&lines, 0, lines.len(), None)
+    spans(&lines, 0, lines.len())
+        .into_iter()
+        .map(|span| lines_chunk(&lines, span))
+        .collect()
 }
 
-/// Windows `lines[from..to]` into chunks, snapping each cut back to the
-/// nearest blank line within [`SNAP`] lines.
-pub fn chunk_lines(lines: &[&str], from: usize, to: usize, symbol: Option<&str>) -> Vec<Chunk> {
-    let mut chunks = Vec::new();
+/// Windows `lines[from..to]`, snapping each cut back to the nearest blank
+/// line within [`SNAP`] lines. Windows holding only blank lines are dropped.
+pub(crate) fn spans(lines: &[&str], from: usize, to: usize) -> Vec<Span> {
+    let mut spans = Vec::new();
     let mut start = from;
     while start < to {
         let mut end = (start + WINDOW).min(to);
@@ -29,14 +32,18 @@ pub fn chunk_lines(lines: &[&str], from: usize, to: usize, symbol: Option<&str>)
             end = (start + WINDOW).min(to);
         }
         if lines[start..end].iter().any(|line| !line.trim().is_empty()) {
-            chunks.push(lines_chunk(lines, start, end, symbol.map(str::to_string)));
+            spans.push(Span {
+                start,
+                end,
+                symbol: None,
+            });
         }
         if end >= to {
             break;
         }
         start = end.saturating_sub(OVERLAP).max(start + 1);
     }
-    chunks
+    spans
 }
 
 #[cfg(test)]

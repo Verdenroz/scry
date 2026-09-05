@@ -203,6 +203,9 @@ pub struct AnswerRequest {
     pub repo_key: Option<String>,
     #[serde(default)]
     pub web: bool,
+    /// Applies the server's `[rerank]` stage to the local sources.
+    #[serde(default = "default_true")]
+    pub rerank: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

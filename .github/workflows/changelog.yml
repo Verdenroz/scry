@@ -4,8 +4,7 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: changelog
@@ -13,12 +12,28 @@ concurrency:
 
 jobs:
   regenerate:
-    if: github.actor != 'github-actions[bot]'
+    if: ${{ !endsWith(github.actor, '[bot]') }}
     runs-on: ubuntu-latest
+    permissions: {} # all repo access comes from the minted App token below
     steps:
+      - name: Mint a changelog-bot token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.CHANGELOG_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CHANGELOG_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Get changelog-bot user id
+        id: app-user
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: echo "id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # surface diff worktree + previous-tag lookup need history
+          token: ${{ steps.app-token.outputs.token }}
       - uses: dtolnay/rust-toolchain@stable
       # rustdoc JSON for the API surface diff is nightly-only
       - run: rustup toolchain install nightly --profile minimal
@@ -34,11 +49,22 @@ jobs:
           [ -n "$PREV" ] && AGAINST="--against-ref $PREV"
           # shellcheck disable=SC2086 # deliberate flag list
           cargo soothfast report changelog -p scry-core -p scry-server --baseline base $AGAINST
-      - name: Commit if changed
-        run: |
-          git diff --quiet CHANGELOG.md && exit 0
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit -m "docs: regenerate CHANGELOG.md"
-          git push
+      - uses: peter-evans/create-pull-request@v8
+        id: cpr
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          add-paths: CHANGELOG.md
+          commit-message: "docs: regenerate CHANGELOG.md"
+          title: "docs: regenerate CHANGELOG.md"
+          body: Automated CHANGELOG regeneration.
+          branch: bot/changelog-update
+          delete-branch: true
+          author: >-
+            ${{ steps.app-token.outputs.app-slug }}[bot]
+            <${{ steps.app-user.outputs.id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>
+      - name: Merge pull request
+        if: steps.cpr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        run: gh pr merge --auto --squash --delete-branch "$PR_NUMBER"

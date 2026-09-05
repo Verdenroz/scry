@@ -51,6 +51,11 @@ edits elsewhere in a file, but renaming a file or changing the repo key
 deliberately re-embeds. Directories at or above `$HOME` are never treated
 as repos; search there goes cross-repo (`repo_id = None` end to end).
 
+**Chunking happens server-side** in `prepare_file`, and a file is only
+re-chunked when its content hash changes. After touching `chunker/`, run
+`scry index --full` in a test repo to see the effect; plain `scry index`
+will report everything unchanged. `@generated` files yield no chunks.
+
 **One SQLite file** holds everything: repos/files/chunks + FTS5 +
 sqlite-vec tables + memories. The vec tables are created at `Store::open`
 because their DDL carries the embedding dimension; `meta` stamps the

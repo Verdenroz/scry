@@ -9,7 +9,7 @@ use scry_server::api::{
     FileUpload, ManifestRequest, SearchRequest, SearchResponse, StatusResponse, SyncRequest,
     SyncResponse,
 };
-use scry_server::{AppState, StoreHandle, router};
+use scry_server::{AppState, QueryCache, StoreHandle, router};
 
 const TOKEN: &str = "test-token";
 const REPO: &str = "github.com/test/http";
@@ -34,6 +34,7 @@ async fn spawn_server_with(rerank: Option<RerankClient>) -> String {
         memory_config: config.memory.clone(),
         tavily: None,
         rerank,
+        query_cache: QueryCache::new(8),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());

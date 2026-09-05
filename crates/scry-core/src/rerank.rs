@@ -4,6 +4,7 @@
 use serde::Deserialize;
 
 use crate::config::RerankConfig;
+use crate::index::embed_input;
 use crate::search::{RRF_K, SearchHit};
 use crate::{Error, Result};
 
@@ -40,6 +41,18 @@ impl RerankClient {
 
     pub fn weight(&self) -> f64 {
         self.config.weight
+    }
+
+    /// The text scored for a hit: its embedding input cut to `max_chars`.
+    pub fn document(&self, hit: &SearchHit) -> String {
+        let mut text = embed_input(
+            &hit.repo_key,
+            &hit.relpath,
+            hit.symbol.as_deref(),
+            &hit.content,
+        );
+        text.truncate(text.floor_char_boundary(self.config.max_chars));
+        text
     }
 
     /// Scores every document against the query; results come back best
@@ -135,6 +148,23 @@ mod tests {
         let paths: Vec<&str> = out.iter().map(|h| h.relpath.as_str()).collect();
         assert_eq!(paths, vec!["c", "a"]);
         assert_eq!(out[0].score, 0.5);
+    }
+
+    #[test]
+    fn document_keeps_the_header_and_cuts_on_a_char_boundary() {
+        let client = RerankClient::new(RerankConfig {
+            base_url: String::new(),
+            api_key: String::new(),
+            model: String::new(),
+            top_n: 20,
+            weight: 1.0,
+            max_chars: 12,
+        });
+        let mut long = hit("a.rs");
+        long.content = "éééééééééé".to_string();
+        let document = client.document(&long);
+        assert_eq!(document, "r > a.rs\né");
+        assert!(document.len() <= 12);
     }
 
     #[test]

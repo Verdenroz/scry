@@ -118,10 +118,18 @@ pub struct RerankConfig {
     pub top_n: usize,
     #[serde(default = "default_rerank_weight")]
     pub weight: f64,
+    /// Each document is cut here before scoring; the header and the start
+    /// of a chunk carry the signal the cross-encoder needs.
+    #[serde(default = "default_rerank_max_chars")]
+    pub max_chars: usize,
 }
 
 fn default_rerank_top_n() -> usize {
     20
+}
+
+fn default_rerank_max_chars() -> usize {
+    3000
 }
 
 fn default_rerank_weight() -> f64 {
