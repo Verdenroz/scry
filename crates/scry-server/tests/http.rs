@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use scry_core::config::Config;
+use scry_core::config::RerankConfig;
 use scry_core::embed::HashEmbedder;
+use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
 use scry_server::api::{
     FileUpload, ManifestRequest, SearchRequest, SearchResponse, StatusResponse, SyncRequest,
@@ -13,6 +15,10 @@ const TOKEN: &str = "test-token";
 const REPO: &str = "github.com/test/http";
 
 async fn spawn_server() -> String {
+    spawn_server_with(None).await
+}
+
+async fn spawn_server_with(rerank: Option<RerankClient>) -> String {
     let store = Store::open_in_memory("hash-test", 128).unwrap();
     let config: Config = toml::from_str(&format!(
         "[server]\nauth_token = \"{TOKEN}\"\n[embedding]\ndim = 128\nmodel = \"hash-test\"\n"
@@ -27,6 +33,7 @@ async fn spawn_server() -> String {
         index_config: config.index.clone(),
         memory_config: config.memory.clone(),
         tavily: None,
+        rerank,
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -121,6 +128,7 @@ async fn auth_sync_search_roundtrip() {
             query: "load configuration".to_string(),
             limit: 5,
             path_prefix: None,
+            rerank: true,
         })
         .send()
         .await
@@ -140,6 +148,7 @@ async fn auth_sync_search_roundtrip() {
             query: "load configuration".to_string(),
             limit: 5,
             path_prefix: None,
+            rerank: true,
         })
         .send()
         .await
@@ -159,9 +168,91 @@ async fn auth_sync_search_roundtrip() {
             query: "x".to_string(),
             limit: 5,
             path_prefix: None,
+            rerank: true,
         })
         .send()
         .await
         .unwrap();
     assert_eq!(missing_repo.status(), 404);
+}
+
+/// Scores each document by its position, so the last candidate wins.
+async fn spawn_mock_reranker() -> String {
+    let app = axum::Router::new().route(
+        "/v1/rerank",
+        axum::routing::post(
+            |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                let n = body["documents"].as_array().map_or(0, |d| d.len());
+                let results: Vec<serde_json::Value> = (0..n)
+                    .map(|i| serde_json::json!({ "index": i, "relevance_score": i as f64 }))
+                    .collect();
+                axum::Json(serde_json::json!({ "results": results }))
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    base
+}
+
+async fn search(http: &reqwest::Client, base: &str, rerank: bool) -> Vec<String> {
+    let response: SearchResponse = http
+        .post(format!("{base}/v1/search"))
+        .bearer_auth(TOKEN)
+        .json(&SearchRequest {
+            repo_key: Some(REPO.to_string()),
+            query: "load configuration".to_string(),
+            limit: 2,
+            path_prefix: None,
+            rerank,
+        })
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    response.hits.into_iter().map(|h| h.relpath).collect()
+}
+
+#[tokio::test]
+async fn rerank_stage_reorders_and_no_rerank_bypasses_it() {
+    let reranker = spawn_mock_reranker().await;
+    let config: RerankConfig = toml::from_str(&format!(
+        "base_url = \"{reranker}\"\nmodel = \"mock\"\ntop_n = 2\nweight = 2.0\n"
+    ))
+    .unwrap();
+    let base = spawn_server_with(Some(RerankClient::new(config))).await;
+    let http = reqwest::Client::new();
+    http.post(format!("{base}/v1/sync"))
+        .bearer_auth(TOKEN)
+        .json(&SyncRequest {
+            repo_key: REPO.to_string(),
+            upserts: vec![
+                upload(
+                    "src/config.rs",
+                    "pub fn load_configuration(path: &str) -> u16 {\n    path.len() as u16\n}\n",
+                ),
+                upload(
+                    "src/net.rs",
+                    "pub fn send_request(url: &str) -> usize {\n    url.len()\n}\n",
+                ),
+            ],
+            deletes: vec![],
+        })
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let plain = search(&http, &base, false).await;
+    let reranked = search(&http, &base, true).await;
+    assert_eq!(plain[0], "src/config.rs");
+    assert_eq!(reranked.len(), 2);
+    assert_eq!(reranked[0], plain[1]);
+    assert_eq!(reranked[1], plain[0]);
 }

@@ -2,11 +2,22 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
+use scry_core::index::embed_input;
+use scry_core::rerank::fuse;
 use scry_core::search::{SearchOptions, query_vector, search_with_vector};
 
 use crate::AppState;
 use crate::api::{Hit, SearchRequest, SearchResponse};
 use crate::error::ApiError;
+
+/// A reranker is an improvement layer: past this budget or on any error
+/// the fused order is returned, so search is never worse than without it.
+const RERANK_BUDGET: std::time::Duration = std::time::Duration::from_secs(6);
+
+fn truncated<T>(mut hits: Vec<T>, limit: usize) -> Vec<T> {
+    hits.truncate(limit);
+    hits
+}
 
 pub async fn search(
     State(state): State<Arc<AppState>>,
@@ -19,6 +30,9 @@ pub async fn search(
         &request.query,
     )
     .await?;
+    let rerank = state.rerank.as_ref().filter(|_| request.rerank);
+    let pool = rerank.map_or(request.limit, |client| request.limit.max(client.top_n()));
+    let (query, limit) = (request.query.clone(), request.limit);
     let hits = state
         .store
         .call(move |store| {
@@ -30,13 +44,33 @@ pub async fn search(
                 None => None,
             };
             let options = SearchOptions {
-                limit: request.limit,
+                limit: pool,
                 path_prefix: request.path_prefix.clone(),
             };
             search_with_vector(store, repo_id, &request.query, &vector, &options).map(Some)
         })
         .await?
         .ok_or_else(|| ApiError::NotFound("repo not indexed".to_string()))?;
+    let hits = match rerank {
+        Some(client) => {
+            let documents: Vec<String> = hits
+                .iter()
+                .map(|h| embed_input(&h.repo_key, &h.relpath, h.symbol.as_deref(), &h.content))
+                .collect();
+            match tokio::time::timeout(RERANK_BUDGET, client.rerank(&query, &documents)).await {
+                Ok(Ok(ranked)) => fuse(hits, &ranked, client.weight(), limit),
+                Ok(Err(error)) => {
+                    tracing::warn!("rerank failed, returning fused order: {error}");
+                    truncated(hits, limit)
+                }
+                Err(_) => {
+                    tracing::warn!("rerank exceeded {RERANK_BUDGET:?}, returning fused order");
+                    truncated(hits, limit)
+                }
+            }
+        }
+        None => hits,
+    };
     Ok(Json(SearchResponse {
         hits: hits
             .into_iter()

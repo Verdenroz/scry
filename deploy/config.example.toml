@@ -26,6 +26,17 @@ batch_size = 32
 # [tavily]
 # api_key = "env:TAVILY_API_KEY"
 
+# Cross-encoder over the fused top candidates through a Jina-style
+# POST {base_url}/rerank (llama-server with --reranking serves one), fused
+# back in as a weighted reciprocal-rank leg. Errors and calls over six
+# seconds fall back to the fused order; --no-rerank skips it per query.
+# api_key is optional.
+# [rerank]
+# base_url = "http://localhost:12434/v1"
+# model = "bge-reranker-v2-m3"
+# top_n = 20
+# weight = 1.0
+
 [client]
 server_url = "http://127.0.0.1:7345"
 # token = "env:SCRY_TOKEN"

@@ -75,6 +75,7 @@ pub async fn run(args: SearchArgs) -> Result<()> {
             query: args.query.clone(),
             limit: args.max_count,
             path_prefix: scope.path_prefix,
+            rerank: args.rerank,
         })
         .await?;
     match &scope.local_root {
