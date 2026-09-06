@@ -40,5 +40,5 @@ tree-sitter-typescript = "0.23.2"
 xxhash-rust = { version = "0.8.18", features = ["xxh64"] }
 
 [dev-dependencies]
-soothfast = { version = "0.2.0", features = ["runner"] }
+soothfast = { version = "0.3.1", features = ["runner"] }
 tempfile = "3.27.0"

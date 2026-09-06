@@ -12,7 +12,7 @@ cargo clippy --workspace --all-targets -- -D warnings   # CI treats warnings as 
 cargo fmt --all
 
 cargo soothfast measure -p scry-core --save-baseline base   # refresh perf baseline
-cargo soothfast gate -p scry-core --against-ref origin/main # what gate.yml runs on PRs
+cargo soothfast gate -p scry-core --against-ref origin/main # what CI runs on PRs
 cargo soothfast docs check                   # doc claims vs the "base" baseline
 cargo soothfast docs build --baseline base   # site to ./site (published by docs.yml)
 
@@ -94,8 +94,12 @@ installed copies until the version is bumped in BOTH
 `crates/scry-core/benches/soothfast.rs`; `docs/search.md` carries claims
 checked against the `base` baseline (alloc claims are exact - changing a
 measured function usually means re-measuring and updating the claim);
-`gate.yml` measures PRs against their merge-base, so perf regressions in
-measured functions fail CI by design, not by flake.
+the `soothfast` job in `ci.yml` (the `Verdenroz/soothfast` action) gates PRs
+against their merge-base and posts the result as a soothfast-bot comment, so
+perf regressions in measured functions fail CI by design, not by flake. On
+pushes to `main` the same job refreshes the baseline and lands CHANGELOG.md
+as a `bot/soothfast-update` PR. Bump the action ref together with the
+`soothfast` dependency; the action installs the CLI matching `Cargo.lock`.
 
 ## Config
 
