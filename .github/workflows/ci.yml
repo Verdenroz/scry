@@ -18,3 +18,23 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  soothfast:
+    # the bot's own merge must not regenerate again
+    if: github.event_name == 'pull_request' || !endsWith(github.actor, '[bot]')
+    runs-on: ubuntu-latest
+    environment: soothfast-bot
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    concurrency:
+      group: soothfast-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: Verdenroz/soothfast@80b18d8831521646b65fec79c6df14d6f763c602 # v0.3.1
+        with:
+          changelog-packages: scry-core scry-server

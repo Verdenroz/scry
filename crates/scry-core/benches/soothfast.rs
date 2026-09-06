@@ -76,10 +76,13 @@ fn bench_chunk_rust(source: &str) {
     keep(scry_core::chunker::chunk_file("bench.rs", keep(source)));
 }
 
+// Small enough that harness/codegen noise straddles the default threshold
+// run-to-run.
 #[bench(
     group = "search",
     setup = symbol_table,
-    covers = "scry_core::search::expand_symbols"
+    covers = "scry_core::search::expand_symbols",
+    tolerance = "8%"
 )]
 fn bench_expand_symbols(symbols: &[String]) {
     keep(scry_core::search::expand_symbols(
