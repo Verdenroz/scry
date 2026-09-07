@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (draft vs v0.2.0)
+
+<!-- soothfast:notes -->
+<!-- ### Overview -->
+<!-- What this release means for someone using it. One paragraph. -->
+
+<!-- ### Upgrade notes -->
+<!-- What a consumer has to do. "Nothing" is a useful answer. -->
+<!-- /soothfast:notes -->
+
+### 🔧 Internal
+
+- Disable credential persistence in soothfast checkout (#7)
+- Move perf gate and changelog onto the soothfast action (#6)
+
+
 ## 0.2.0 - 2026-09-05
 
 <!-- soothfast:notes -->
