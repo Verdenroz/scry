@@ -38,6 +38,8 @@ pub async fn remember(
                 content: request.content,
                 pain: request.pain,
                 cost: request.cost,
+                source: "agent".to_string(),
+                evidence: None,
                 anchors: request
                     .anchors
                     .into_iter()

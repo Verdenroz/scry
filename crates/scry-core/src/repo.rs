@@ -44,6 +44,16 @@ pub fn normalize_remote_url(url: &str) -> Option<String> {
     Some(format!("{}/{path}", host.to_lowercase()))
 }
 
+/// Memory scope key for a directory outside any repo. Home-relative so the
+/// same layout shares memories across devices.
+pub fn path_scope_key(dir: &Path, home: &Path) -> String {
+    match dir.strip_prefix(home) {
+        Ok(rel) if rel.as_os_str().is_empty() => "path:~".to_string(),
+        Ok(rel) => format!("path:~/{}", rel.display()),
+        Err(_) => format!("path:{}", dir.display()),
+    }
+}
+
 #[derive(Deserialize)]
 struct ProjectFile {
     project: ProjectSection,
@@ -114,6 +124,21 @@ pub fn detect(dir: &Path) -> Result<RepoIdentity> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_scope_is_home_relative_when_under_home() {
+        let home = Path::new("/home/h");
+        assert_eq!(path_scope_key(home, home), "path:~");
+        assert_eq!(
+            path_scope_key(Path::new("/home/h/notes/ideas"), home),
+            "path:~/notes/ideas"
+        );
+        assert_eq!(
+            path_scope_key(Path::new("/srv/data"), home),
+            "path:/srv/data"
+        );
+        assert_eq!(path_scope_key(Path::new("/home/hx"), home), "path:/home/hx");
+    }
 
     #[test]
     fn normalizes_scp_and_https_to_same_key() {

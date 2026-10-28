@@ -15,11 +15,14 @@ pub const KINDS: &[&str] = &[
     "episode",
 ];
 
+pub const SOURCES: &[&str] = &["agent", "capture"];
+
 const SURPRISE_WEIGHT: f64 = 0.25;
 const COST_WEIGHT: f64 = 0.35;
 const EXPLICIT_WEIGHT: f64 = 0.4;
 const STALE_FACTOR: f64 = 0.5;
 const CANDIDATES: usize = 40;
+const BRIEF_STALE_MAX: usize = 5;
 
 #[derive(Debug, Clone)]
 pub struct MemoryDraft {
@@ -30,6 +33,8 @@ pub struct MemoryDraft {
     pub pain: Option<f64>,
     /// Session cost signal 0-10 (retries, time burned) from the writer.
     pub cost: Option<f64>,
+    pub source: String,
+    pub evidence: Option<String>,
     pub anchors: Vec<AnchorSpec>,
 }
 
@@ -82,12 +87,23 @@ pub fn validate_kind(kind: &str) -> Result<()> {
     )))
 }
 
+pub fn validate_source(source: &str) -> Result<()> {
+    if SOURCES.contains(&source) {
+        return Ok(());
+    }
+    Err(Error::Config(format!(
+        "unknown memory source {source:?}; expected one of {}",
+        SOURCES.join(", ")
+    )))
+}
+
 pub async fn remember(
     store: &mut Store,
     embedder: &dyn Embedder,
     draft: MemoryDraft,
 ) -> Result<(i64, f64, f64)> {
     validate_kind(&draft.kind)?;
+    validate_source(&draft.source)?;
     let embedding = embedder
         .embed(&[embed_text(&draft.kind, &draft.content)])
         .await?
@@ -118,8 +134,8 @@ pub fn remember_with_embedding(
             surprise,
             cost,
             explicit_weight: explicit,
-            source: "agent".to_string(),
-            evidence: None,
+            source: draft.source,
+            evidence: draft.evidence,
             embedding,
         },
         &anchors,
@@ -164,6 +180,12 @@ fn resolve_anchors(
         .collect()
 }
 
+fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
 pub fn recall_with_vector(
     store: &Store,
     repo_id: Option<i64>,
@@ -171,9 +193,7 @@ pub fn recall_with_vector(
     limit: usize,
     half_life_days: f64,
 ) -> Result<Vec<MemoryHit>> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
+    let now = now_epoch();
     let mut hits: Vec<MemoryHit> = store
         .memory_candidates(repo_id, vector, CANDIDATES)?
         .into_iter()
@@ -192,6 +212,51 @@ pub fn recall_with_vector(
     hits.truncate(limit.max(1));
     store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
     Ok(hits)
+}
+
+#[derive(Debug, Clone)]
+pub struct Brief {
+    pub top: Vec<MemoryHit>,
+    pub went_stale: Vec<MemoryHit>,
+}
+
+/// Query-less digest of a scope: best live memories by recall score with
+/// similarity fixed at 1.0, plus memories that went stale within
+/// `stale_days`. Read-only, so briefing never refreshes recency.
+pub fn brief(
+    store: &Store,
+    repo_id: Option<i64>,
+    limit: usize,
+    stale_days: u32,
+    half_life_days: f64,
+) -> Result<Brief> {
+    let now = now_epoch();
+    let mut top: Vec<MemoryHit> = store
+        .live_memories(repo_id)?
+        .into_iter()
+        .map(|row| MemoryHit {
+            score: recall_score(1.0, &row, now, half_life_days),
+            id: row.id,
+            kind: row.kind,
+            content: row.content,
+            stale: false,
+        })
+        .collect();
+    top.sort_by(|a, b| b.score.total_cmp(&a.score));
+    top.truncate(limit);
+    let since = now - i64::from(stale_days) * 86_400;
+    let went_stale = store
+        .recently_stale_memories(repo_id, since, BRIEF_STALE_MAX)?
+        .into_iter()
+        .map(|row| MemoryHit {
+            score: recall_score(1.0, &row, now, half_life_days),
+            id: row.id,
+            kind: row.kind,
+            content: row.content,
+            stale: true,
+        })
+        .collect();
+    Ok(Brief { top, went_stale })
 }
 
 #[cfg(test)]

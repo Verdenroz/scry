@@ -3,7 +3,7 @@ use std::path::Path;
 use scry_core::config::IndexConfig;
 use scry_core::embed::{Embedder, HashEmbedder};
 use scry_core::index::index_repo;
-use scry_core::memory::{AnchorSpec, MemoryDraft, recall_with_vector, remember};
+use scry_core::memory::{AnchorSpec, MemoryDraft, brief, recall_with_vector, remember};
 use scry_core::store::Store;
 
 const REPO_KEY: &str = "github.com/test/memory";
@@ -21,6 +21,8 @@ fn draft(repo_id: i64, content: &str, pain: Option<f64>, anchor: Option<&str>) -
         content: content.to_string(),
         pain,
         cost: None,
+        source: "agent".to_string(),
+        evidence: None,
         anchors: anchor
             .map(|relpath| AnchorSpec {
                 relpath: relpath.to_string(),
@@ -117,6 +119,8 @@ async fn surprise_drops_for_near_duplicates() {
         content: content.to_string(),
         pain: None,
         cost: None,
+        source: "agent".to_string(),
+        evidence: None,
         anchors: vec![],
     };
     let (_, _, surprise_first) = remember(&mut store, &embedder, first.clone())
@@ -137,6 +141,8 @@ async fn rejects_unknown_kind_and_unindexed_anchor() {
         content: "x".to_string(),
         pain: None,
         cost: None,
+        source: "agent".to_string(),
+        evidence: None,
         anchors: vec![],
     };
     assert!(remember(&mut store, &embedder, bad_kind).await.is_err());
@@ -148,4 +154,91 @@ async fn rejects_unknown_kind_and_unindexed_anchor() {
         .err()
         .unwrap();
     assert!(err.to_string().contains("not in the index"));
+}
+
+#[tokio::test]
+async fn brief_ranks_scope_and_globals_without_touching_access() {
+    let mut store = Store::open_in_memory("hash-test", 256).unwrap();
+    let embedder = HashEmbedder { dim: 256 };
+    let repo_id = store.upsert_repo(REPO_KEY).unwrap();
+    let other = store.upsert_repo("github.com/test/other").unwrap();
+    let strong = draft(repo_id, "strong lesson about retries", Some(10.0), None);
+    let weak = draft(repo_id, "weak note about naming", Some(0.0), None);
+    let foreign = draft(other, "lesson from another repo", Some(10.0), None);
+    let global = MemoryDraft {
+        repo_id: None,
+        ..draft(repo_id, "global convention about commits", Some(5.0), None)
+    };
+    let mut ids = Vec::new();
+    for d in [strong, weak, foreign, global] {
+        ids.push(remember(&mut store, &embedder, d).await.unwrap().0);
+    }
+
+    let digest = brief(&store, Some(repo_id), 8, 7, 29.0).unwrap();
+    let got: Vec<i64> = digest.top.iter().map(|h| h.id).collect();
+    assert_eq!(got.len(), 3);
+    assert!(!got.contains(&ids[2]));
+    assert_eq!(got[0], ids[0]);
+    assert!(digest.went_stale.is_empty());
+    assert_eq!(
+        brief(&store, Some(repo_id), 1, 7, 29.0).unwrap().top.len(),
+        1
+    );
+
+    let rows = store.live_memories(Some(repo_id)).unwrap();
+    assert!(rows.iter().all(|row| row.access_count == 0));
+}
+
+#[tokio::test]
+async fn brief_lists_recently_stale_and_rejects_unknown_source() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "src/a.rs", "pub fn a() {}\n");
+    let mut store = Store::open_in_memory("hash-test", 256).unwrap();
+    let embedder = HashEmbedder { dim: 256 };
+    index_repo(
+        &mut store,
+        &embedder,
+        REPO_KEY,
+        dir.path(),
+        &IndexConfig::default(),
+    )
+    .await
+    .unwrap();
+    let repo_id = store.repo_id(REPO_KEY).unwrap().unwrap();
+    let id = remember(
+        &mut store,
+        &embedder,
+        draft(repo_id, "a is special", None, Some("src/a.rs")),
+    )
+    .await
+    .unwrap()
+    .0;
+    write(dir.path(), "src/a.rs", "pub fn a() { 1; }\n");
+    index_repo(
+        &mut store,
+        &embedder,
+        REPO_KEY,
+        dir.path(),
+        &IndexConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    let digest = brief(&store, Some(repo_id), 8, 7, 29.0).unwrap();
+    assert!(digest.top.is_empty());
+    assert_eq!(digest.went_stale.len(), 1);
+    assert_eq!(digest.went_stale[0].id, id);
+    assert!(
+        brief(&store, Some(repo_id), 8, 0, 29.0)
+            .unwrap()
+            .went_stale
+            .len()
+            <= 1
+    );
+
+    let bad = MemoryDraft {
+        source: "oracle".to_string(),
+        ..draft(repo_id, "x", None, None)
+    };
+    assert!(remember(&mut store, &embedder, bad).await.is_err());
 }
