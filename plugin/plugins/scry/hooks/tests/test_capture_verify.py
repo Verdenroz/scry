@@ -123,6 +123,22 @@ class SettleTests(unittest.TestCase):
         self.assertEqual(kept["supersedes"], 7)
         self.assertIsNone(dropped["supersedes"])
 
+    def test_source_is_the_full_cited_entry_body(self):
+        out = cv.settle(memory("lesson", cited(3, QUOTE)), KEPT, set())
+        self.assertEqual(out["source"], KEPT[3].body)
+
+    def test_downgrade_drops_anchors_and_supersedes(self):
+        out = cv.downgrade(
+            cv.settle(
+                memory("lesson", cited(3, QUOTE), anchors=["a.rs"], supersedes=7),
+                KEPT,
+                {"a.rs"},
+            )
+        )
+        self.assertEqual(
+            (out["kind"], out["anchors"], out["supersedes"]), ("episode", [], None)
+        )
+
     def test_anchor_must_be_an_edited_file(self):
         out = cv.settle(
             memory("lesson", cited(3, QUOTE), anchors=["untouched.rs"]),

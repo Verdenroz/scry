@@ -185,6 +185,17 @@ transcript the model saw.
   `scry recall|remember|memory`) never count as proof.
 - Anchors are limited to files the session edited.
 
+A true quote does not prove the claim follows from it. Every memory that
+survives the quote check as a `lesson`, `fact`, `decision`, or
+`convention` is then judged by `scry memory verify`, which compares the
+memory content against the full cited entry. `unsupported` downgrades it
+to an `episode` (anchors and supersession dropped). If verification is not
+configured, the quote-only result stands and the pass log records
+`"verify": "not configured"`. A failed or timed-out verify call fails
+closed and downgrades. Each pass logs the scores (`verified`) and the
+`downgraded` count. See the Verification section for the model and
+threshold settings.
+
 ### Compounding
 
 A reinforce claim needs a tool-result quote and runs `scry memory helpful`;

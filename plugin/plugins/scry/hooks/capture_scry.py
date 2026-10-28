@@ -48,3 +48,14 @@ def mark(verb: str, ident: int, cwd: str) -> None:
 
 def supersede(old: int, new: int, cwd: str) -> None:
     run(["memory", "supersede", str(old), str(new)], cwd)
+
+
+def verify(claim: str, evidence: str, cwd: str):
+    result = run(["memory", "verify", claim, "--evidence", evidence], cwd)
+    if result.returncode != 0:
+        raise RuntimeError(f"scry memory verify exited {result.returncode}")
+    line = result.stdout.strip()
+    if line == "not configured":
+        return line, None
+    verdict, score = line.split()
+    return verdict, float(score)

@@ -81,6 +81,37 @@ def write_plan(plan: dict, cwd: str) -> int:
     return written
 
 
+def verify_memories(memories, cwd: str):
+    out, scores, errors, downgraded = [], [], [], 0
+    configured = True
+    for memory in memories:
+        if memory["kind"] not in capture_verify.PROOF_KINDS or not configured:
+            out.append(memory)
+            continue
+        try:
+            verdict, score = capture_scry.verify(
+                memory["content"], memory["source"], cwd
+            )
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+            verdict, score = "unsupported", None
+        if verdict == "not configured":
+            configured = False
+            out.append(memory)
+            continue
+        scores.append([memory["kind"], score])
+        if verdict == "unsupported":
+            downgraded += 1
+            memory = capture_verify.downgrade(memory)
+        out.append(memory)
+    record = {"verified": scores, "downgraded": downgraded}
+    if not configured:
+        record["verify"] = "not configured"
+    if errors:
+        record["verify_errors"] = errors
+    return out, record
+
+
 def unmarked(ids, done) -> list:
     return [i for i in dict.fromkeys(ids) if i not in done]
 
@@ -110,6 +141,7 @@ def capture_range(payload: dict) -> dict:
         capture_model.build_prompt(text, existing), str(STATE_DIR)
     )
     plan = capture_verify.plan(output, kept, edited, set(existing))
+    plan["memories"], verdicts = verify_memories(plan["memories"], cwd)
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
     written = write_plan(plan, cwd)
@@ -128,6 +160,7 @@ def capture_range(payload: dict) -> dict:
         "episodes": sum(m["kind"] == "episode" for m in plan["memories"]),
         "helpful": len(plan["helpful"]),
         "noise": len(plan["noise"]),
+        **verdicts,
     }
 
 

@@ -35,15 +35,21 @@ def settle(memory, kept, edited):
     evidence = memory.get("evidence")
     proven = kind in PROOF_KINDS and holds(evidence, kept, PROOF_KINDS[kind])
     final = kind if proven or kind == "episode" else "episode"
+    cited = holds(evidence, kept)
     anchors = [a for a in memory.get("anchors") or [] if a.split(":")[0] in edited]
     return {
         "kind": final,
         "content": memory.get("content", "")[:MAX_CONTENT],
-        "evidence": cite(evidence) if holds(evidence, kept) else None,
+        "evidence": cite(evidence) if cited else None,
+        "source": kept[evidence["entry"]].body if cited else None,
         "anchors": [] if final == "episode" else anchors,
         "pain": memory.get("pain"),
         "supersedes": memory.get("supersedes") if final == kind else None,
     }
+
+
+def downgrade(memory):
+    return {**memory, "kind": "episode", "anchors": [], "supersedes": None}
 
 
 def proven_ids(claims, kept, kinds, shown) -> list:

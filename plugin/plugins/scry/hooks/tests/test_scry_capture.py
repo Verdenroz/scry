@@ -18,9 +18,10 @@ QUOTE = "linker `cc` not found on this machine"
 
 
 class Fake:
-    def __init__(self, output, fail_anchored=False):
+    def __init__(self, output, fail_anchored=False, verify=("not configured", 0)):
         self.output = output
         self.fail_anchored = fail_anchored
+        self.verify = verify
         self.calls = []
 
     def __call__(self, argv, **kwargs):
@@ -33,6 +34,8 @@ class Fake:
         elif argv[:2] == ["scry", "remember"]:
             code = 1 if self.fail_anchored and "--anchor" in argv else 0
             out = "remembered #50 (salience 0.5, surprise 0.2)"
+        elif argv[:3] == ["scry", "memory", "verify"]:
+            out, code = self.verify
         elif argv[:2] == ["scry", "recall"]:
             out = "[decision #9] (0.70) use rrf"
         return SimpleNamespace(returncode=code, stdout=out, stderr="")
@@ -97,6 +100,10 @@ def lesson(**extra):
         "evidence": {"entry": 5, "quote": QUOTE},
         **extra,
     }
+
+
+def memory_episode():
+    return lesson(kind="episode", anchors=[])
 
 
 class CaptureTests(unittest.TestCase):
@@ -210,6 +217,56 @@ class CaptureTests(unittest.TestCase):
         fake = Fake({"memories": [], "reinforce": [], "contradict": []})
         self.run_capture(fake)
         self.assertIn("--no-touch", fake.scry("scry", "recall")[0])
+
+    def verified(self, verify):
+        out = {"memories": [lesson()], "reinforce": [], "contradict": []}
+        fake = Fake(out, verify=verify)
+        return fake, self.run_capture(fake)
+
+    def test_supported_memory_keeps_kind_and_anchors(self):
+        fake, result = self.verified(("supported 0.83", 0))
+        self.assertEqual(result["verified"], [["lesson", 0.83]])
+        self.assertEqual(result["downgraded"], 0)
+        (verify,) = fake.scry("scry", "memory", "verify")
+        self.assertEqual(verify[3], "cc is needed")
+        self.assertIn(f"error: {QUOTE}", verify[5])
+        self.assertIn("lesson", fake.scry("scry", "remember")[0])
+        self.assertIn("--anchor", fake.scry("scry", "remember")[0])
+
+    def test_unsupported_memory_becomes_episode_without_anchors(self):
+        fake, result = self.verified(("unsupported 0.04", 0))
+        self.assertEqual(result["downgraded"], 1)
+        (remember,) = fake.scry("scry", "remember")
+        self.assertIn("episode", remember)
+        self.assertNotIn("--anchor", remember)
+        self.assertEqual(fake.scry("scry", "index"), [])
+
+    def test_not_configured_keeps_quote_only_result(self):
+        fake, result = self.verified(("not configured", 0))
+        self.assertEqual(result["verify"], "not configured")
+        self.assertEqual(result["downgraded"], 0)
+        self.assertIn("lesson", fake.scry("scry", "remember")[0])
+
+    def test_verify_failure_fails_closed(self):
+        fake, result = self.verified(("", 2))
+        self.assertEqual(result["downgraded"], 1)
+        self.assertEqual(len(result["verify_errors"]), 1)
+        self.assertIn("episode", fake.scry("scry", "remember")[0])
+
+    def test_unsupported_drops_supersedes(self):
+        out = {
+            "memories": [lesson(supersedes=9)],
+            "reinforce": [],
+            "contradict": [],
+        }
+        fake = Fake(out, verify=("unsupported 0.1", 0))
+        self.run_capture(fake)
+        self.assertEqual(fake.scry("scry", "memory", "supersede"), [])
+
+    def test_episodes_are_not_verified(self):
+        fake = Fake({"memories": [memory_episode()], "reinforce": [], "contradict": []})
+        self.run_capture(fake)
+        self.assertEqual(fake.scry("scry", "memory", "verify"), [])
 
     def test_few_tool_calls_skip_without_advancing(self):
         Path(self.payload["transcript_path"]).write_text(
