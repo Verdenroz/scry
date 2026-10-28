@@ -3,13 +3,15 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use scry_core::memory::{
-    AnchorSpec, MemoryDraft, embed_text, recall_with_vector, remember_with_embedding, validate_kind,
+    AnchorSpec, MemoryDraft, MemoryHit, brief as build_brief, embed_text, recall_with_vector,
+    remember_with_embedding, validate_kind, validate_source,
 };
 
 use crate::AppState;
 use crate::api::{
-    FeedbackRequest, FeedbackResponse, MemoryDto, RecallRequest, RecallResponse, RememberRequest,
-    RememberResponse,
+    BriefRequest, BriefResponse, FeedbackRequest, FeedbackResponse, MemoryDto, MemoryStatsResponse,
+    RecallRequest, RecallResponse, RememberRequest, RememberResponse, SourceStatsDto,
+    SupersedeRequest, SupersedeResponse,
 };
 use crate::error::ApiError;
 
@@ -18,6 +20,7 @@ pub async fn remember(
     Json(request): Json<RememberRequest>,
 ) -> Result<Json<RememberResponse>, ApiError> {
     validate_kind(&request.kind).map_err(|e| ApiError::NotFound(e.to_string()))?;
+    validate_source(&request.source).map_err(|e| ApiError::NotFound(e.to_string()))?;
     let embedding = state
         .embedder
         .embed(&[embed_text(&request.kind, &request.content)])
@@ -38,8 +41,8 @@ pub async fn remember(
                 content: request.content,
                 pain: request.pain,
                 cost: request.cost,
-                source: "agent".to_string(),
-                evidence: None,
+                source: request.source,
+                evidence: request.evidence,
                 anchors: request
                     .anchors
                     .into_iter()
@@ -78,21 +81,29 @@ pub async fn recall(
                 Some(key) => store.repo_id(key)?,
                 None => None,
             };
-            recall_with_vector(store, repo_id, &vector, request.limit, half_life)
+            recall_with_vector(
+                store,
+                repo_id,
+                &vector,
+                request.limit,
+                half_life,
+                request.touch,
+            )
         })
         .await?;
     Ok(Json(RecallResponse {
-        memories: memories
-            .into_iter()
-            .map(|hit| MemoryDto {
-                id: hit.id,
-                kind: hit.kind,
-                content: hit.content,
-                score: hit.score,
-                stale: hit.stale,
-            })
-            .collect(),
+        memories: memories.into_iter().map(memory_dto).collect(),
     }))
+}
+
+fn memory_dto(hit: MemoryHit) -> MemoryDto {
+    MemoryDto {
+        id: hit.id,
+        kind: hit.kind,
+        content: hit.content,
+        score: hit.score,
+        stale: hit.stale,
+    }
 }
 
 pub async fn feedback(
@@ -104,4 +115,58 @@ pub async fn feedback(
         .call(move |store| store.memory_feedback(request.id, request.helpful))
         .await?;
     Ok(Json(FeedbackResponse { updated }))
+}
+
+pub async fn brief(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<BriefRequest>,
+) -> Result<Json<BriefResponse>, ApiError> {
+    let half_life = state.memory_config.half_life_days;
+    let digest = state
+        .store
+        .call(move |store| {
+            let repo_id = match &request.repo_key {
+                Some(key) => store.repo_id(key)?,
+                None => None,
+            };
+            build_brief(store, repo_id, request.limit, request.stale_days, half_life)
+        })
+        .await?;
+    Ok(Json(BriefResponse {
+        memories: digest.top.into_iter().map(memory_dto).collect(),
+        went_stale: digest.went_stale.into_iter().map(memory_dto).collect(),
+    }))
+}
+
+pub async fn supersede(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<SupersedeRequest>,
+) -> Result<Json<SupersedeResponse>, ApiError> {
+    let superseded = state
+        .store
+        .call(move |store| store.supersede_memory(request.old_id, request.new_id))
+        .await?;
+    Ok(Json(SupersedeResponse { superseded }))
+}
+
+pub async fn memory_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<MemoryStatsResponse>, ApiError> {
+    let stats = state
+        .store
+        .call(|store| store.memory_source_stats())
+        .await?;
+    Ok(Json(MemoryStatsResponse {
+        sources: stats
+            .into_iter()
+            .map(|s| SourceStatsDto {
+                source: s.source,
+                memories: s.total,
+                stale: s.stale,
+                retrievals: s.retrievals,
+                helpful: s.helpful,
+                noise: s.noise,
+            })
+            .collect(),
+    }))
 }

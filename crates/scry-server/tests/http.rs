@@ -6,8 +6,8 @@ use scry_core::embed::HashEmbedder;
 use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
 use scry_server::api::{
-    FileUpload, ManifestRequest, SearchRequest, SearchResponse, StatusResponse, SyncRequest,
-    SyncResponse,
+    BriefResponse, FileUpload, ManifestRequest, MemoryStatsResponse, RememberResponse,
+    SearchRequest, SearchResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse,
 };
 use scry_server::{AppState, QueryCache, StoreHandle, router};
 
@@ -256,4 +256,111 @@ async fn rerank_stage_reorders_and_no_rerank_bypasses_it() {
     assert_eq!(reranked.len(), 2);
     assert_eq!(reranked[0], plain[1]);
     assert_eq!(reranked[1], plain[0]);
+}
+
+#[tokio::test]
+async fn memory_brief_supersede_and_stats() {
+    let base = spawn_server().await;
+    let http = reqwest::Client::new();
+    let remember = |body: serde_json::Value| {
+        http.post(format!("{base}/v1/memories/remember"))
+            .bearer_auth(TOKEN)
+            .json(&body)
+            .send()
+    };
+
+    let scope = "path:~/notes";
+    let first: RememberResponse = remember(serde_json::json!({
+        "repo_key": scope, "kind": "lesson", "content": "keep notes terse",
+        "source": "capture", "evidence": "session 4"
+    }))
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let second: RememberResponse = remember(serde_json::json!({
+        "repo_key": scope, "kind": "lesson", "content": "keep notes very terse"
+    }))
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let recall = |touch: bool| {
+        http.post(format!("{base}/v1/memories/recall"))
+            .bearer_auth(TOKEN)
+            .json(&serde_json::json!({ "repo_key": scope, "query": "terse notes", "touch": touch }))
+            .send()
+    };
+    recall(false).await.unwrap();
+    let stats = memory_stats(&http, &base).await;
+    assert_eq!(stats.sources[0].retrievals, 0);
+    recall(true).await.unwrap();
+    let stats = memory_stats(&http, &base).await;
+    assert!(stats.sources[0].retrievals > 0);
+
+    let bad = remember(serde_json::json!({
+        "repo_key": scope, "kind": "lesson", "content": "x", "source": "oracle"
+    }))
+    .await
+    .unwrap();
+    assert_eq!(bad.status(), 404);
+
+    let brief = |repo_key: Option<&str>| {
+        http.post(format!("{base}/v1/memories/brief"))
+            .bearer_auth(TOKEN)
+            .json(&serde_json::json!({ "repo_key": repo_key }))
+            .send()
+    };
+    let digest: BriefResponse = brief(Some(scope)).await.unwrap().json().await.unwrap();
+    assert_eq!(digest.memories.len(), 2);
+    assert!(digest.went_stale.is_empty());
+    let elsewhere: BriefResponse = brief(Some("path:~/other"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(elsewhere.memories.is_empty());
+
+    let supersede = |old_id: i64, new_id: i64| {
+        http.post(format!("{base}/v1/memories/supersede"))
+            .bearer_auth(TOKEN)
+            .json(&serde_json::json!({ "old_id": old_id, "new_id": new_id }))
+            .send()
+    };
+    let missing: SupersedeResponse = supersede(first.id, 999)
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!missing.superseded);
+    let done: SupersedeResponse = supersede(first.id, second.id)
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(done.superseded);
+    let digest: BriefResponse = brief(Some(scope)).await.unwrap().json().await.unwrap();
+    assert_eq!(digest.memories.len(), 1);
+    assert_eq!(digest.memories[0].id, second.id);
+
+    let stats = memory_stats(&http, &base).await;
+    assert_eq!(stats.sources.len(), 1);
+    assert_eq!(stats.sources[0].source, "agent");
+    assert_eq!(stats.sources[0].memories, 1);
+}
+
+async fn memory_stats(http: &reqwest::Client, base: &str) -> MemoryStatsResponse {
+    http.get(format!("{base}/v1/memories/stats"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
 }

@@ -192,6 +192,7 @@ pub fn recall_with_vector(
     vector: &[f32],
     limit: usize,
     half_life_days: f64,
+    touch: bool,
 ) -> Result<Vec<MemoryHit>> {
     let now = now_epoch();
     let mut hits: Vec<MemoryHit> = store
@@ -210,7 +211,9 @@ pub fn recall_with_vector(
         .collect();
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     hits.truncate(limit.max(1));
-    store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
+    if touch {
+        store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
+    }
     Ok(hits)
 }
 

@@ -103,8 +103,16 @@ pub struct RememberRequest {
     pub pain: Option<f64>,
     #[serde(default)]
     pub cost: Option<f64>,
+    #[serde(default = "default_source")]
+    pub source: String,
+    #[serde(default)]
+    pub evidence: Option<String>,
     #[serde(default)]
     pub anchors: Vec<AnchorDto>,
+}
+
+fn default_source() -> String {
+    "agent".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -129,10 +137,16 @@ pub struct RecallRequest {
     pub query: String,
     #[serde(default = "default_recall_limit")]
     pub limit: usize,
+    #[serde(default = "default_touch")]
+    pub touch: bool,
 }
 
 fn default_recall_limit() -> usize {
     5
+}
+
+fn default_touch() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,6 +172,55 @@ pub struct FeedbackRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FeedbackResponse {
     pub updated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefRequest {
+    pub repo_key: Option<String>,
+    #[serde(default = "default_brief_limit")]
+    pub limit: usize,
+    #[serde(default = "default_stale_days")]
+    pub stale_days: u32,
+}
+
+fn default_brief_limit() -> usize {
+    8
+}
+
+fn default_stale_days() -> u32 {
+    7
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefResponse {
+    pub memories: Vec<MemoryDto>,
+    pub went_stale: Vec<MemoryDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SupersedeRequest {
+    pub old_id: i64,
+    pub new_id: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SupersedeResponse {
+    pub superseded: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MemoryStatsResponse {
+    pub sources: Vec<SourceStatsDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SourceStatsDto {
+    pub source: String,
+    pub memories: i64,
+    pub stale: i64,
+    pub retrievals: i64,
+    pub helpful: i64,
+    pub noise: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
