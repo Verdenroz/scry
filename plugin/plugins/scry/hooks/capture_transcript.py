@@ -8,6 +8,8 @@ INPUT_CAP = 400
 RENDER_CAP = 120_000
 EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 MEMORY_CMD = re.compile(r"\bscry\s+(recall|remember|memory)\b")
+WEB_CMD = re.compile(r"\bscry\b[^|;&\n]*--web\b|\b(?:curl|wget)\b")
+WEB_OMITTED = "[web content omitted]"
 INJECTED = re.compile(r"^\[(\w+) #(\d+)\](?: \([^)]*\))*\s*(.*)$", re.MULTILINE)
 
 
@@ -37,7 +39,16 @@ def echoes_memory(name: str, args: dict) -> bool:
     return name in EDIT_TOOLS or bool(MEMORY_CMD.search(args.get("command") or ""))
 
 
-def entry_parts(obj, echoing=frozenset()):
+def fetches_web(name: str, args: dict) -> bool:
+    lowered = (name or "").lower()
+    return (
+        "web" in lowered
+        or "fetch" in lowered
+        or bool(WEB_CMD.search(args.get("command") or ""))
+    )
+
+
+def entry_parts(obj, echoing=frozenset(), web=frozenset()):
     content = (obj.get("message") or {}).get("content")
     if obj.get("type") == "user":
         if obj.get("isMeta") or obj.get("isCompactSummary"):
@@ -47,8 +58,11 @@ def entry_parts(obj, echoing=frozenset()):
             return
         for block in content or []:
             if block.get("type") == "tool_result":
-                echoed = block.get("tool_use_id") in echoing
-                yield "tool_result", result_text(block), "", echoed
+                call_id = block.get("tool_use_id")
+                if call_id in web:
+                    yield "tool_result", WEB_OMITTED, "", True
+                    continue
+                yield "tool_result", result_text(block), "", call_id in echoing
             elif block.get("type") == "text":
                 yield "user", block.get("text", "")[:TEXT_CAP], "", False
     elif obj.get("type") == "assistant":
@@ -77,7 +91,7 @@ def read_lines(path: str):
                 yield {}
 
 
-def echoing_calls(obj) -> set:
+def calls_matching(obj, predicate) -> set:
     content = (obj.get("message") or {}).get("content")
     if obj.get("type") != "assistant" or not isinstance(content, list):
         return set()
@@ -85,13 +99,14 @@ def echoing_calls(obj) -> set:
         block.get("id")
         for block in content
         if block.get("type") == "tool_use"
-        and echoes_memory(block.get("name"), block.get("input") or {})
+        and predicate(block.get("name"), block.get("input") or {})
     }
 
 
 def load(path: str, offset: int):
     entries = []
     echoing = set()
+    web = set()
     total = 0
     for line_no, obj in enumerate(read_lines(path), 1):
         if not obj:
@@ -99,10 +114,11 @@ def load(path: str, offset: int):
         total = line_no
         if obj.get("isSidechain"):
             continue
-        echoing |= echoing_calls(obj)
+        echoing |= calls_matching(obj, echoes_memory)
+        web |= calls_matching(obj, fetches_web)
         if total <= offset:
             continue
-        for kind, body, edited, echoed in entry_parts(obj, echoing):
+        for kind, body, edited, echoed in entry_parts(obj, echoing, web):
             entries.append(Entry(len(entries) + 1, kind, body, edited, echoed))
     return entries, total
 

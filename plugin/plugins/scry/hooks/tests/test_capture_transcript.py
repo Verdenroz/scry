@@ -117,6 +117,59 @@ class EchoTests(unittest.TestCase):
         )
 
 
+class WebTests(unittest.TestCase):
+    def test_web_tool_results_are_omitted_and_never_proof(self):
+        for tool, args in (
+            ("WebFetch", {"url": "https://x.dev"}),
+            ("WebSearch", {"query": "q"}),
+            ("mcp__tavily__tavily_search_web", {}),
+            ("mcp__ref__fetch_docs", {}),
+            ("Bash", {"command": 'scry --web --answer "q"'}),
+            ("Bash", {"command": "cd x && curl -s https://x.dev"}),
+            ("Bash", {"command": "wget https://x.dev/a.tgz"}),
+        ):
+            entry = results_after(tool, args)
+            self.assertEqual(entry.body, ct.WEB_OMITTED, tool)
+            self.assertTrue(entry.echoed, tool)
+
+    def test_web_tool_calls_stay_visible(self):
+        entries, _ = ct.load(web_transcript(), 0)
+        self.assertIn("WebFetch", entries[0].body)
+        self.assertEqual(entries[1].body, ct.WEB_OMITTED)
+
+    def test_local_scry_search_is_not_web(self):
+        entry = results_after("Bash", {"command": 'scry "vec" --repo x'})
+        self.assertEqual(entry.body, "[lesson #12] echoed")
+
+
+def web_transcript():
+    handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+    use = {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "w",
+                    "name": "WebFetch",
+                    "input": {"url": "https://x.dev"},
+                }
+            ]
+        },
+    }
+    result = {
+        "type": "user",
+        "message": {
+            "content": [
+                {"type": "tool_result", "tool_use_id": "w", "content": "page text"}
+            ]
+        },
+    }
+    handle.write(json.dumps(use) + "\n" + json.dumps(result) + "\n")
+    handle.close()
+    return handle.name
+
+
 class RenderTests(unittest.TestCase):
     def test_numbered_lines(self):
         entries, _ = ct.load(FIXTURE, 0)

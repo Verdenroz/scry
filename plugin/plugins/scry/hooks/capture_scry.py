@@ -13,27 +13,20 @@ def run(args, cwd, timeout=60):
 
 
 def recall(query: str, cwd: str) -> dict:
-    result = run(["recall", query, "-m", "8", "--no-touch"], cwd)
+    result = run(["recall", "-m", "8", "--no-touch", "--", query], cwd)
     return capture_transcript.parse_memories(result.stdout)
 
 
 def remember(memory, cwd):
-    args = [
-        "remember",
-        memory["content"],
-        "--kind",
-        memory["kind"],
-        "--source",
-        "capture",
-    ]
+    args = ["--kind", memory["kind"], "--source", "capture"]
     if memory["evidence"]:
         args += ["--evidence", memory["evidence"]]
     if memory["pain"] is not None:
         args += ["--pain", str(memory["pain"])]
     anchored = args + [x for a in memory["anchors"] for x in ("--anchor", a)]
-    result = run(anchored, cwd)
+    result = run(["remember", *anchored, "--", memory["content"]], cwd)
     if result.returncode != 0 and memory["anchors"]:
-        result = run(args, cwd)
+        result = run(["remember", *args, "--", memory["content"]], cwd)
     found = REMEMBERED.search(result.stdout)
     return int(found.group(1)) if result.returncode == 0 and found else None
 

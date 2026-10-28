@@ -213,6 +213,19 @@ class CaptureTests(unittest.TestCase):
         self.assertIn("[#1] tool_use: Read", kwargs["input"])
         self.assertTrue((self.root / "state" / "s1.lock").exists())
 
+    def test_leading_dash_text_goes_after_the_separator(self):
+        out = {
+            "memories": [lesson(content="--force pushes need a lease")],
+            "reinforce": [],
+            "contradict": [],
+        }
+        fake = Fake(out)
+        self.run_capture(fake)
+        (remember,) = fake.scry("scry", "remember")
+        self.assertEqual(remember[-2:], ["--", "--force pushes need a lease"])
+        recall = fake.scry("scry", "recall")[0]
+        self.assertEqual(recall[-2], "--")
+
     def test_recall_does_not_touch_access_stats(self):
         fake = Fake({"memories": [], "reinforce": [], "contradict": []})
         self.run_capture(fake)

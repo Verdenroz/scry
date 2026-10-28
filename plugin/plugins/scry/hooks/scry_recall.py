@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     try:
         result = subprocess.run(
-            ["scry", "recall", prompt, "-m", "3", "--min-score", "0.25"],
+            ["scry", "recall", "-m", "3", "--min-score", "0.25", "--", prompt],
             cwd=payload.get("cwd") or os.getcwd(),
             capture_output=True,
             text=True,
