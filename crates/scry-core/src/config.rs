@@ -114,7 +114,8 @@ pub enum VerifyApi {
 }
 
 /// Claim verifier. `chat` asks an OpenAI-compatible model a yes/no question
-/// at `{base_url}/chat/completions`; `systemone` posts to `{base_url}/v1/systemone`.
+/// at `{base_url}/chat/completions`; `systemone` posts to `{base_url}/systemone`.
+/// Both take a base_url ending in `/v1`.
 /// Absent means verification is not configured.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -125,8 +126,6 @@ pub struct VerifyConfig {
     pub model: String,
     #[serde(default = "default_embedding_key")]
     pub api_key: String,
-    #[serde(default)]
-    pub thinking: bool,
     #[serde(default = "default_verify_threshold")]
     pub threshold: f64,
     /// Chat prompt override; must contain `{claim}` and `{evidence}`.
@@ -480,7 +479,6 @@ mod tests {
         let verify = config.verify.unwrap();
         assert_eq!(verify.api, VerifyApi::Chat);
         assert_eq!(verify.threshold, 0.5);
-        assert!(!verify.thinking);
         assert!(Config::default().verify.is_none());
     }
 
@@ -491,7 +489,6 @@ mod tests {
             base_url: String::new(),
             model: String::new(),
             api_key: String::new(),
-            thinking: false,
             threshold: 0.5,
             prompt: Some(prompt.to_string()),
         };
