@@ -152,3 +152,43 @@ with zero false accepts and two of 14 good claims rejected at 0.2 (six
 rejected at 0.5). That is one measurement on a small set, not a default.
 The same set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77
 depending on phrasing, so calibrate before trusting any verifier.
+
+## Automatic capture
+
+The Claude Code plugin captures memories without the agent asking. At
+`PreCompact` and `SessionEnd` a detached worker renders the new part of
+the session transcript (user prompts, assistant text, tool calls, and the
+tail of each tool result, each numbered `[#n]`) and makes one headless
+`claude -p` pass over it. The model sees the memories injected during the
+session plus a `scry recall` on the first prompt, and returns up to five
+memories plus memories to reinforce or contradict. A per-session state
+file records how far the transcript was processed, so `PreCompact` then
+`SessionEnd` covers each part once. Sessions with fewer than three tool
+calls in the new range are skipped. `SCRY_CAPTURE_MODEL` picks the model
+and `SCRY_CAPTURE_LOG` the one-line-per-pass log.
+
+### Proof gating
+
+The script, not the model, decides what counts as proven. Every claim
+carries an entry number and a verbatim quote (20+ characters,
+whitespace-normalized) that must appear in that entry of the rendered
+transcript the model saw.
+
+- `lesson` and `fact` need a quote from a tool result.
+- `decision` and `convention` need a quote from a user prompt or a tool
+  result.
+- A memory that fails is stored as an `episode` with its anchors dropped,
+  so a wrong guess never lands as a fact.
+- Tool results that echo memory or the agent's own writing (edits, writes,
+  `scry recall|remember|memory`) never count as proof.
+- Anchors are limited to files the session edited.
+
+### Compounding
+
+A reinforce claim needs a tool-result quote and runs `scry memory helpful`;
+a contradict claim needs a tool-result or user quote and runs
+`scry memory noise`. Unproven claims are ignored, and each id is marked at
+most once per session. A new memory may name the one it replaces; the
+supersession is applied only if the new memory kept its kind after the
+proof check. At `SessionStart` the plugin injects `scry memory brief`, so
+the next session starts from these memories and marks them in turn.
