@@ -1,6 +1,8 @@
 import json
 import re
+import shlex
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 RESULT_TAIL = 1500
 TEXT_CAP = 4000
@@ -8,7 +10,10 @@ INPUT_CAP = 400
 RENDER_CAP = 120_000
 EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 MEMORY_CMD = re.compile(r"\bscry\s+(recall|remember|memory)\b")
-WEB_CMD = re.compile(r"\bscry\b[^|;&\n]*--web\b|\b(?:curl|wget)\b")
+SCRY_WEB = re.compile(r"\bscry\b[^|;&\n]*--web\b")
+HTTP_CLIENT = re.compile(r"\b(?:curl|wget)\b")
+BARE_HOST = re.compile(r"^(?:localhost|[\w-]+(?:\.[\w-]+)+|\[[0-9a-f:]+\])(?::\d+)?(?:/|$)")
+LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 WEB_OMITTED = "[web content omitted]"
 INJECTED = re.compile(r"^\[(\w+) #(\d+)\](?: \([^)]*\))*\s*(.*)$", re.MULTILINE)
 
@@ -39,13 +44,22 @@ def echoes_memory(name: str, args: dict) -> bool:
     return name in EDIT_TOOLS or bool(MEMORY_CMD.search(args.get("command") or ""))
 
 
+def targets_loopback_only(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    urls = [t for t in tokens if "://" in t] or [t for t in tokens if BARE_HOST.match(t)]
+    hosts = [urlsplit(u if "://" in u else f"//{u}").hostname for u in urls]
+    return bool(hosts) and all(h in LOOPBACK for h in hosts)
+
+
 def fetches_web(name: str, args: dict) -> bool:
     lowered = (name or "").lower()
-    return (
-        "web" in lowered
-        or "fetch" in lowered
-        or bool(WEB_CMD.search(args.get("command") or ""))
-    )
+    command = args.get("command") or ""
+    if "web" in lowered or "fetch" in lowered or SCRY_WEB.search(command):
+        return True
+    return bool(HTTP_CLIENT.search(command)) and not targets_loopback_only(command)
 
 
 def entry_parts(obj, echoing=frozenset(), web=frozenset()):

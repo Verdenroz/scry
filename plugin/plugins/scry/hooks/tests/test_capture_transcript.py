@@ -137,6 +137,26 @@ class WebTests(unittest.TestCase):
         self.assertIn("WebFetch", entries[0].body)
         self.assertEqual(entries[1].body, ct.WEB_OMITTED)
 
+    def test_loopback_http_calls_stay_visible(self):
+        for command in (
+            "curl -s http://127.0.0.1:7399/health",
+            "curl localhost:12434/v1/models",
+            "curl -s 'http://[::1]:7345/health' | jq .",
+            "wget -qO- http://0.0.0.0:8000/ http://localhost/x",
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertNotEqual(entry.body, ct.WEB_OMITTED, command)
+
+    def test_mixed_or_unparseable_http_calls_are_omitted(self):
+        for command in (
+            "curl http://localhost:1/a https://x.dev/b",
+            "curl https://localhost.evil.dev/x",
+            "curl -s \"unbalanced",
+            "curl",
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+
     def test_local_scry_search_is_not_web(self):
         entry = results_after("Bash", {"command": 'scry "vec" --repo x'})
         self.assertEqual(entry.body, "[lesson #12] echoed")
