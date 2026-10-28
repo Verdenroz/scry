@@ -376,7 +376,7 @@ mod tests {
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
                 )
                 .unwrap();
-            for id in [1, 2] {
+            for id in [1, 2, 3] {
                 store
                     .conn
                     .execute(
@@ -433,7 +433,11 @@ mod tests {
             .unwrap()
             .collect::<std::result::Result<_, _>>()
             .unwrap();
-        assert_eq!(partitions, vec![(1, 0), (2, 1)]);
+        assert_eq!(
+            partitions,
+            vec![(1, 0), (2, 1)],
+            "archived row keeps no vector"
+        );
         let suppressions: i64 = store
             .conn
             .query_row("SELECT count(*) FROM memory_suppressions", [], |row| {
