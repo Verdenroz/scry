@@ -5,7 +5,7 @@ use scry_server::api::{
     FeedbackResponse, ManifestRequest, ManifestResponse, MemoryStatsResponse, PruneRequest,
     PruneResponse, RecallRequest, RecallResponse, RememberRequest, RememberResponse, SearchRequest,
     SearchResponse, StatusResponse, SupersedeRequest, SupersedeResponse, SyncRequest, SyncResponse,
-    WebSearchRequest, WebSearchResponse,
+    VerifyRequest, VerifyResponse, WebSearchRequest, WebSearchResponse,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -96,6 +96,10 @@ impl ApiClient {
 
     pub async fn supersede(&self, request: &SupersedeRequest) -> Result<SupersedeResponse> {
         self.post("/v1/memories/supersede", request).await
+    }
+
+    pub async fn verify(&self, request: &VerifyRequest) -> Result<VerifyResponse> {
+        self.post("/v1/memories/verify", request).await
     }
 
     pub async fn web_search(&self, request: &WebSearchRequest) -> Result<WebSearchResponse> {

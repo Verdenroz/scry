@@ -26,6 +26,8 @@ USAGE:
   scry memory brief [-m N] [--stale-days D]  top memories + recently stale ones
   scry memory supersede <old_id> <new_id>    retire a memory in favor of another
   scry memory stats                      per-source memory counts and feedback
+  scry memory verify \"claim\" --evidence T  score a claim against evidence
+  scry memory verify --eval <pairs.jsonl>    calibrate the verifier on labelled pairs
 
 SEARCH OPTIONS:
   -m, --max-count <n>   max results (default 10)

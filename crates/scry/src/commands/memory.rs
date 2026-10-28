@@ -129,6 +129,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         Some("brief") => brief(&args[1..]).await,
         Some("supersede") => supersede(&args[1..]).await,
         Some("stats") => stats().await,
+        Some("verify") => super::verify::run(&args[1..]).await,
         _ => feedback(args).await,
     }
 }

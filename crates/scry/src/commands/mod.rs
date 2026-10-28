@@ -5,6 +5,7 @@ pub mod repo;
 pub mod search;
 pub mod serve;
 pub mod status;
+pub mod verify;
 pub mod watch;
 
 use anyhow::Result;
