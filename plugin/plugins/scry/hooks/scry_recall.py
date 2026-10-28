@@ -15,6 +15,8 @@ def read_hook_input():
 
 
 if __name__ == "__main__":
+    if os.environ.get("SCRY_CAPTURE") == "1":
+        sys.exit(0)
     payload = read_hook_input() or {}
     prompt = (payload.get("prompt") or "").strip()
     if len(prompt) < 12:
