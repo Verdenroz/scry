@@ -127,6 +127,10 @@ class SettleTests(unittest.TestCase):
         out = cv.settle(memory("lesson", cited(3, QUOTE)), KEPT, set())
         self.assertEqual(out["source"], KEPT[3].body)
 
+    def test_episode_never_supersedes(self):
+        out = cv.settle(memory("episode", None, supersedes=7), KEPT, set())
+        self.assertIsNone(out["supersedes"])
+
     def test_downgrade_drops_anchors_and_supersedes(self):
         out = cv.downgrade(
             cv.settle(

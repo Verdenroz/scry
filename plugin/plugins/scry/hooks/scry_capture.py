@@ -44,12 +44,17 @@ def read_hook_input():
 def load_state(state_file: Path) -> dict:
     if not state_file.exists():
         return {"offset": 0, "helpful": [], "noise": []}
-    return json.loads(state_file.read_text())
+    try:
+        return json.loads(state_file.read_text())
+    except json.JSONDecodeError:
+        return {"offset": 0, "helpful": [], "noise": []}
 
 
 def save_state(state_file: Path, state: dict) -> None:
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps(state))
+    staging = state_file.with_suffix(".tmp")
+    staging.write_text(json.dumps(state))
+    os.replace(staging, state_file)
 
 
 def repo_relative(paths, cwd: str) -> set:

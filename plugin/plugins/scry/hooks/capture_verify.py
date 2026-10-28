@@ -44,7 +44,7 @@ def settle(memory, kept, edited):
         "source": kept[evidence["entry"]].body if cited else None,
         "anchors": [] if final == "episode" else anchors,
         "pain": memory.get("pain"),
-        "supersedes": memory.get("supersedes") if final == kind else None,
+        "supersedes": memory.get("supersedes") if final == kind and final in PROOF_KINDS else None,
     }
 
 

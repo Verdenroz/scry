@@ -14,7 +14,7 @@ FIXTURE = str(Path(__file__).resolve().parent / "fixtures" / "session.jsonl")
 class LoadTests(unittest.TestCase):
     def test_entries_skip_meta_sidechain_and_garbage(self):
         entries, total = ct.load(FIXTURE, 0)
-        self.assertEqual(total, 10)
+        self.assertEqual(total, 9)
         self.assertEqual(
             [e.kind for e in entries],
             [
@@ -30,13 +30,24 @@ class LoadTests(unittest.TestCase):
         )
         self.assertEqual([e.n for e in entries], list(range(1, 9)))
 
+    def test_compact_summary_and_list_text_blocks(self):
+        summary = {"type": "user", "isCompactSummary": True, "message": {"content": "sum"}}
+        blocks = {
+            "type": "user",
+            "message": {"content": [{"type": "text", "text": "always use X"}]},
+        }
+        self.assertEqual(list(ct.entry_parts(summary)), [])
+        self.assertEqual(
+            list(ct.entry_parts(blocks)), [("user", "always use X", "", False)]
+        )
+
     def test_list_content_tool_result_is_joined(self):
         entries, _ = ct.load(FIXTURE, 0)
         self.assertEqual(entries[6].body, "edited ok")
 
     def test_offset_skips_processed_lines_and_renumbers(self):
         entries, total = ct.load(FIXTURE, 6)
-        self.assertEqual(total, 10)
+        self.assertEqual(total, 9)
         self.assertEqual(entries[0].n, 1)
         self.assertEqual(entries[0].kind, "tool_use")
 

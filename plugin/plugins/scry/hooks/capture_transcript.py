@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass
 
 RESULT_TAIL = 1500
+TEXT_CAP = 4000
 INPUT_CAP = 400
 RENDER_CAP = 120_000
 EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
@@ -39,18 +40,21 @@ def echoes_memory(name: str, args: dict) -> bool:
 def entry_parts(obj, echoing=frozenset()):
     content = (obj.get("message") or {}).get("content")
     if obj.get("type") == "user":
+        if obj.get("isMeta") or obj.get("isCompactSummary"):
+            return
         if isinstance(content, str):
-            if not obj.get("isMeta"):
-                yield "user", content, "", False
+            yield "user", content[:TEXT_CAP], "", False
             return
         for block in content or []:
             if block.get("type") == "tool_result":
                 echoed = block.get("tool_use_id") in echoing
                 yield "tool_result", result_text(block), "", echoed
+            elif block.get("type") == "text":
+                yield "user", block.get("text", "")[:TEXT_CAP], "", False
     elif obj.get("type") == "assistant":
         for block in content or []:
             if block.get("type") == "text":
-                yield "assistant", block.get("text", ""), "", False
+                yield "assistant", block.get("text", "")[:TEXT_CAP], "", False
             elif block.get("type") == "tool_use":
                 name = block.get("name")
                 args = block.get("input") or {}
@@ -89,7 +93,10 @@ def load(path: str, offset: int):
     entries = []
     echoing = set()
     total = 0
-    for total, obj in enumerate(read_lines(path), 1):
+    for line_no, obj in enumerate(read_lines(path), 1):
+        if not obj:
+            continue
+        total = line_no
         if obj.get("isSidechain"):
             continue
         echoing |= echoing_calls(obj)

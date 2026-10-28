@@ -10,6 +10,14 @@ EVIDENCE = {
     "properties": {"entry": {"type": "integer"}, "quote": {"type": "string"}},
     "required": ["entry", "quote"],
 }
+CLAIMS = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"id": {"type": "integer"}, "evidence": EVIDENCE},
+        "required": ["id", "evidence"],
+    },
+}
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -38,22 +46,8 @@ SCHEMA = {
                 ],
             },
         },
-        "reinforce": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"id": {"type": "integer"}, "evidence": EVIDENCE},
-                "required": ["id", "evidence"],
-            },
-        },
-        "contradict": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"id": {"type": "integer"}, "evidence": EVIDENCE},
-                "required": ["id", "evidence"],
-            },
-        },
+        "reinforce": CLAIMS,
+        "contradict": CLAIMS,
     },
     "required": ["memories", "reinforce", "contradict"],
 }
