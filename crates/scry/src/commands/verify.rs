@@ -60,20 +60,43 @@ pub async fn run(args: &[String]) -> Result<()> {
 async fn calibrate(client: &ApiClient, path: &str) -> Result<()> {
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {path}"))?;
     let mut scored = Vec::new();
+    let mut errors = Vec::new();
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         let pair: Pair = serde_json::from_str(line).context("bad pair row")?;
         let started = Instant::now();
-        let response = client
+        let outcome = client
             .verify(&VerifyRequest {
                 claim: pair.claim,
                 evidence: pair.evidence,
             })
-            .await?;
+            .await;
         let millis = started.elapsed().as_secs_f64() * 1000.0;
-        scored.push(score_row(pair.label, response, millis)?);
+        scored.push(score_outcome(pair.label, outcome, millis, &mut errors)?);
     }
-    print_calibration(&scored);
+    print_calibration(&scored, &errors);
     Ok(())
+}
+
+/// A verifier error counts as a rejection so a model that fails some rows
+/// can still be measured; an unconfigured server aborts the run.
+fn score_outcome(
+    label: u8,
+    outcome: Result<VerifyResponse>,
+    millis: f64,
+    errors: &mut Vec<String>,
+) -> Result<Scored> {
+    match outcome {
+        Ok(response) => score_row(label, response, millis),
+        Err(error) => {
+            errors.push(error.to_string());
+            Ok(Scored {
+                supported_label: label == 1,
+                score: 0.0,
+                accepted: false,
+                millis,
+            })
+        }
+    }
 }
 
 fn score_row(label: u8, response: VerifyResponse, millis: f64) -> Result<Scored> {
@@ -121,7 +144,7 @@ fn median(values: &mut [f64]) -> f64 {
     }
 }
 
-fn print_calibration(rows: &[Scored]) {
+fn print_calibration(rows: &[Scored], errors: &[String]) {
     println!(
         "pairs: {} ({} supported)",
         rows.len(),
@@ -145,7 +168,18 @@ fn print_calibration(rows: &[Scored]) {
         "at configured threshold: {false_accepts} false accepts, {false_rejects} false rejects"
     );
     if let Some(worst) = scores(rows, false).into_iter().max_by(f64::total_cmp) {
-        println!("zero false accepts above threshold: {worst:.2}");
+        let supported = scores(rows, true);
+        let rejected = supported.iter().filter(|&&score| score <= worst).count();
+        println!(
+            "zero false accepts above threshold: {worst:.2} (rejects {rejected} of {} supported)",
+            supported.len()
+        );
+    }
+    if let Some(first) = errors.first() {
+        println!(
+            "errors: {} (counted as rejections), first: {first}",
+            errors.len()
+        );
     }
 }
 
@@ -175,6 +209,24 @@ mod tests {
         let mixed = [row(true, 0.9), row(true, 0.3), row(false, 0.5)];
         assert_eq!(auroc(&mixed), Some(0.5));
         assert_eq!(auroc(&[row(true, 0.9)]), None);
+    }
+
+    #[test]
+    fn errors_count_as_rejections_and_unconfigured_aborts() {
+        let mut errors = Vec::new();
+        let failed = score_outcome(1, Err(anyhow::anyhow!("no yes/no")), 5.0, &mut errors).unwrap();
+        assert_eq!(
+            (failed.score, failed.accepted, failed.supported_label),
+            (0.0, false, true)
+        );
+        assert_eq!(errors, ["no yes/no"]);
+        let unconfigured = VerifyResponse {
+            configured: false,
+            score: None,
+            supported: None,
+        };
+        assert!(score_outcome(1, Ok(unconfigured), 5.0, &mut errors).is_err());
+        assert_eq!(errors.len(), 1);
     }
 
     #[test]
