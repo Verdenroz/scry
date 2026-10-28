@@ -302,8 +302,8 @@ holds after the edit. A claim is applied only if the id was in that block,
 the quote passes the same proof check as a `lesson` or `fact`, and
 `scry memory verify` does not judge it `unsupported` (or verification is
 not configured). It then runs `scry memory reaffirm <id> --evidence`
-with the cited quote. The pass log lists `reaffirmed` and `reaffirm_failed`
-ids. Replacing a stale memory with a new one through `supersedes` works
+with the cited quote. The pass log lists `reaffirmed`, `reaffirm_failed`,
+and `reaffirm_unsupported` (rejected by the verifier) ids. Replacing a stale memory with a new one through `supersedes` works
 as before.
 
 ### Web content
