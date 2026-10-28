@@ -23,6 +23,7 @@ const EXPLICIT_WEIGHT: f64 = 0.4;
 const STALE_FACTOR: f64 = 0.5;
 const CANDIDATES: usize = 40;
 const BRIEF_STALE_MAX: usize = 5;
+const BRIEF_GLOBAL_MAX: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct MemoryDraft {
@@ -225,7 +226,8 @@ pub struct Brief {
 
 /// Query-less digest of a scope: best live memories by recall score with
 /// similarity fixed at 1.0, plus memories that went stale within
-/// `stale_days`. Read-only, so briefing never refreshes recency.
+/// `stale_days`. Read-only, so briefing never refreshes recency. In a
+/// scoped brief at most [`BRIEF_GLOBAL_MAX`] globals make the list.
 pub fn brief(
     store: &Store,
     repo_id: Option<i64>,
@@ -234,19 +236,32 @@ pub fn brief(
     half_life_days: f64,
 ) -> Result<Brief> {
     let now = now_epoch();
-    let mut top: Vec<MemoryHit> = store
+    let mut ranked: Vec<(MemoryHit, bool)> = store
         .live_memories(repo_id)?
         .into_iter()
-        .map(|row| MemoryHit {
-            score: recall_score(1.0, &row, now, half_life_days),
-            id: row.id,
-            kind: row.kind,
-            content: row.content,
-            stale: false,
+        .map(|row| {
+            let global = row.repo_id.is_none();
+            let hit = MemoryHit {
+                score: recall_score(1.0, &row, now, half_life_days),
+                id: row.id,
+                kind: row.kind,
+                content: row.content,
+                stale: false,
+            };
+            (hit, global)
         })
         .collect();
-    top.sort_by(|a, b| b.score.total_cmp(&a.score));
-    top.truncate(limit);
+    ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    let mut globals = 0;
+    let top = ranked
+        .into_iter()
+        .filter(|(_, global)| {
+            globals += usize::from(*global);
+            repo_id.is_none() || !*global || globals <= BRIEF_GLOBAL_MAX
+        })
+        .map(|(hit, _)| hit)
+        .take(limit)
+        .collect();
     let since = now - i64::from(stale_days) * 86_400;
     let went_stale = store
         .recently_stale_memories(repo_id, since, BRIEF_STALE_MAX)?
@@ -269,6 +284,7 @@ mod tests {
     fn row(salience: f64, status: &str, helpful: i64, access: i64, last_access: i64) -> MemoryRow {
         MemoryRow {
             id: 1,
+            repo_id: None,
             kind: "lesson".to_string(),
             content: String::new(),
             salience,

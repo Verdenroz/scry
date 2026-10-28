@@ -72,7 +72,8 @@ may be wrong now (anchored code changed):
 ```
 
 The second block lists up to 5 memories that went stale within the last
-`--stale-days`. Nothing prints when both lists are empty. A brief does
+`--stale-days`. Inside a repo or path scope at most 2 global memories
+make the top list, so scope memories are not crowded out. Nothing prints when both lists are empty. A brief does
 not count as a retrieval and never refreshes recency; neither does
 `scry recall --no-touch`.
 

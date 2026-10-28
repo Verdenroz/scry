@@ -273,3 +273,32 @@ async fn untouched_recall_leaves_access_count_alone() {
         1
     );
 }
+
+#[tokio::test]
+async fn scoped_brief_caps_globals() {
+    let mut store = Store::open_in_memory("hash-test", 256).unwrap();
+    let embedder = HashEmbedder { dim: 256 };
+    let repo_id = store.upsert_repo(REPO_KEY).unwrap();
+    let mut global_ids = Vec::new();
+    for i in 0..3 {
+        let d = MemoryDraft {
+            repo_id: None,
+            ..draft(repo_id, &format!("global lesson {i}"), Some(10.0), None)
+        };
+        global_ids.push(remember(&mut store, &embedder, d).await.unwrap().0);
+    }
+    for i in 0..3 {
+        let d = draft(repo_id, &format!("scope lesson {i}"), Some(0.0), None);
+        remember(&mut store, &embedder, d).await.unwrap();
+    }
+
+    let scoped = brief(&store, Some(repo_id), 4, 7, 29.0).unwrap();
+    let globals = scoped
+        .top
+        .iter()
+        .filter(|h| global_ids.contains(&h.id))
+        .count();
+    assert_eq!((scoped.top.len(), globals), (4, 2));
+    let unscoped = brief(&store, None, 4, 7, 29.0).unwrap();
+    assert_eq!(unscoped.top.len(), 3);
+}

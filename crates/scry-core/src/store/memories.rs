@@ -28,6 +28,7 @@ pub struct MemoryAnchor {
 #[derive(Debug, Clone)]
 pub struct MemoryRow {
     pub id: i64,
+    pub repo_id: Option<i64>,
     pub kind: String,
     pub content: String,
     pub salience: f64,
@@ -48,20 +49,20 @@ pub struct SourceStats {
     pub noise: i64,
 }
 
-const ROW_COLUMNS: &str =
-    "id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at";
+const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at";
 
 fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
     Ok(MemoryRow {
         id: row.get(0)?,
-        kind: row.get(1)?,
-        content: row.get(2)?,
-        salience: row.get(3)?,
-        status: row.get(4)?,
-        last_access: row.get(5)?,
-        access_count: row.get(6)?,
-        helpful_count: row.get(7)?,
-        stale_at: row.get(8)?,
+        repo_id: row.get(1)?,
+        kind: row.get(2)?,
+        content: row.get(3)?,
+        salience: row.get(4)?,
+        status: row.get(5)?,
+        last_access: row.get(6)?,
+        access_count: row.get(7)?,
+        helpful_count: row.get(8)?,
+        stale_at: row.get(9)?,
     })
 }
 
