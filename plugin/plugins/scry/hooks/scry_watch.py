@@ -2,11 +2,16 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 DEBUG_LOG_FILE = Path(os.environ.get("SCRY_WATCH_LOG", "/tmp/scry-watch.log"))
+GC_STAMP = Path(
+    os.environ.get("SCRY_GC_STAMP", Path.home() / ".cache" / "scry" / "gc-stamp")
+)
+GC_INTERVAL = 24 * 60 * 60
 
 MANDATE = (
     "CRITICAL: You MUST use the scry skill for ALL searches. NEVER use built-in "
@@ -98,6 +103,27 @@ def memory_brief(cwd: str) -> str:
     return "\n\n" + BRIEF_HEADER + brief
 
 
+def gc_due() -> bool:
+    return not GC_STAMP.exists() or time.time() - GC_STAMP.stat().st_mtime > GC_INTERVAL
+
+
+def spawn_gc(cwd: str) -> None:
+    try:
+        GC_STAMP.parent.mkdir(parents=True, exist_ok=True)
+        with open(DEBUG_LOG_FILE, "a", encoding="utf-8") as log:
+            subprocess.Popen(
+                ["scry", "memory", "gc"],
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=log,
+                start_new_session=True,
+            )
+        GC_STAMP.touch()
+    except Exception as exc:
+        debug_log(f"scry memory gc failed to start: {exc}")
+
+
 def at_or_above_home(cwd: str) -> bool:
     home = Path.home().resolve()
     try:
@@ -114,6 +140,8 @@ if __name__ == "__main__":
     cwd = payload.get("cwd") or os.getcwd()
     if not server_reachable():
         sys.exit(0)
+    if gc_due():
+        spawn_gc(cwd)
     # No watch and no mandate outside a real project: builtin tools stay
     # primary there, with global scry search offered instead.
     if at_or_above_home(cwd):

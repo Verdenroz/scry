@@ -2,6 +2,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,6 +42,50 @@ class BriefTests(unittest.TestCase):
             scry_watch.memory_brief("/repo")
         self.assertEqual(run.call_args.kwargs["cwd"], "/repo")
         self.assertEqual(run.call_args.kwargs["timeout"], 5)
+
+
+class GcTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.stamp = Path(tmp.name) / "cache" / "gc-stamp"
+        for name, value in (
+            ("GC_STAMP", self.stamp),
+            ("DEBUG_LOG_FILE", Path(tmp.name) / "watch.log"),
+        ):
+            patcher = mock.patch.object(scry_watch, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def age_stamp(self, seconds):
+        self.stamp.parent.mkdir(parents=True, exist_ok=True)
+        self.stamp.touch()
+        past = time.time() - seconds
+        os.utime(self.stamp, (past, past))
+
+    def test_due_when_stamp_is_missing_or_older_than_a_day(self):
+        self.assertTrue(scry_watch.gc_due())
+        self.age_stamp(25 * 3600)
+        self.assertTrue(scry_watch.gc_due())
+
+    def test_not_due_within_a_day(self):
+        self.age_stamp(3600)
+        self.assertFalse(scry_watch.gc_due())
+
+    def test_spawn_is_detached_logged_and_stamps(self):
+        with mock.patch("subprocess.Popen") as popen:
+            scry_watch.spawn_gc("/repo")
+        args, kwargs = popen.call_args
+        self.assertEqual(args[0], ["scry", "memory", "gc"])
+        self.assertTrue(kwargs["start_new_session"])
+        self.assertEqual(kwargs["cwd"], "/repo")
+        self.assertTrue(self.stamp.exists())
+        self.assertFalse(scry_watch.gc_due())
+
+    def test_spawn_failure_does_not_raise_or_stamp(self):
+        with mock.patch("subprocess.Popen", side_effect=OSError("no scry")):
+            scry_watch.spawn_gc("/repo")
+        self.assertFalse(self.stamp.exists())
 
 
 class GuardTests(unittest.TestCase):
