@@ -118,6 +118,8 @@ pub fn remember_with_embedding(
             surprise,
             cost,
             explicit_weight: explicit,
+            source: "agent".to_string(),
+            evidence: None,
             embedding,
         },
         &anchors,
@@ -206,6 +208,7 @@ mod tests {
             last_access,
             access_count: access,
             helpful_count: helpful,
+            stale_at: None,
         }
     }
 

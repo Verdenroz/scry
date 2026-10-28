@@ -8,7 +8,7 @@ mod memories;
 
 pub use chunks::{ChunkRow, DenseHit, LexicalHit, NewChunk};
 pub use files::StoredFile;
-pub use memories::{MemoryAnchor, MemoryRow, NewMemory};
+pub use memories::{MemoryAnchor, MemoryRow, NewMemory, SourceStats};
 
 use std::path::Path;
 use std::sync::Once;
@@ -19,7 +19,7 @@ use rusqlite::ffi::sqlite3_auto_extension;
 use crate::{Error, Result};
 
 const SCHEMA: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 static VEC_EXTENSION: Once = Once::new();
 
@@ -169,6 +169,8 @@ impl Store {
 /// BM25; rebuilt in place from chunks + files, vectors untouched.
 /// v2 -> v3: float vectors move from vec0 into the plain `chunk_vectors`
 /// table and repos gain a maintained chunk_count.
+/// v3 -> v4: memories gain provenance, a staleness timestamp, and a noise
+/// count.
 fn migrate(conn: &Connection) -> Result<()> {
     let version: String = conn.query_row(
         "SELECT value FROM meta WHERE key = 'schema_version'",
@@ -188,6 +190,9 @@ fn migrate(conn: &Connection) -> Result<()> {
     }
     if version < 3 {
         conn.execute_batch(MIGRATE_V2_TO_V3)?;
+    }
+    if version < 4 {
+        conn.execute_batch(MIGRATE_V3_TO_V4)?;
     }
     Ok(())
 }
@@ -237,6 +242,15 @@ const MIGRATE_V2_TO_V3: &str = "BEGIN;
     UPDATE meta SET value = '3' WHERE key = 'schema_version';
     COMMIT;";
 
+const MIGRATE_V3_TO_V4: &str = "BEGIN;
+    ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'agent'
+        CHECK (source IN ('agent', 'capture'));
+    ALTER TABLE memories ADD COLUMN evidence TEXT;
+    ALTER TABLE memories ADD COLUMN stale_at INTEGER;
+    ALTER TABLE memories ADD COLUMN noise_count INTEGER NOT NULL DEFAULT 0;
+    UPDATE meta SET value = '4' WHERE key = 'schema_version';
+    COMMIT;";
+
 pub(crate) fn vector_bytes(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
@@ -265,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_through_v3() {
+    fn migrates_v1_through_v4() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");
         {
@@ -306,6 +320,15 @@ mod tests {
                      DROP TABLE chunk_vectors;
                      DROP TRIGGER chunks_count_ai; DROP TRIGGER chunks_count_ad;
                      ALTER TABLE repos DROP COLUMN chunk_count;
+                     DROP TABLE memories;
+                     CREATE TABLE memories (
+                         id INTEGER PRIMARY KEY,
+                         repo_id INTEGER REFERENCES repos(id),
+                         kind TEXT NOT NULL,
+                         content TEXT NOT NULL,
+                         status TEXT NOT NULL DEFAULT 'live',
+                         superseded_by INTEGER REFERENCES memories(id));
+                     INSERT INTO memories (kind, content) VALUES ('lesson', 'old');
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
                 )
                 .unwrap();
@@ -319,7 +342,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "3");
+        assert_eq!(version, "4");
         let hits = store.lexical_search(None, "\"domains\"", 5, None).unwrap();
         assert_eq!(hits.len(), 1);
         let copied: i64 = store
@@ -332,6 +355,13 @@ mod tests {
             .query_row("SELECT chunk_count FROM repos", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+        let (source, noise): (String, i64) = store
+            .conn
+            .query_row("SELECT source, noise_count FROM memories", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((source.as_str(), noise), ("agent", 0));
     }
 
     #[test]
