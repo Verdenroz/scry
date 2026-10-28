@@ -14,6 +14,8 @@ pub enum Error {
     Embedding(String),
     #[error("chat: {0}")]
     Chat(String),
+    #[error("verify: {0}")]
+    Verify(String),
     #[error("rerank: {0}")]
     Rerank(String),
 }
