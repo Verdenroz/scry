@@ -209,6 +209,19 @@ pub struct SupersedeResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct VerifyRequest {
+    pub claim: String,
+    pub evidence: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerifyResponse {
+    pub configured: bool,
+    pub score: Option<f64>,
+    pub supported: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MemoryStatsResponse {
     pub sources: Vec<SourceStatsDto>,
 }

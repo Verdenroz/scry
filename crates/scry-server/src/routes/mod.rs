@@ -6,7 +6,7 @@ mod sync;
 mod web;
 
 pub use answer::answer;
-pub use memories::{brief, feedback, memory_stats, recall, remember, supersede};
+pub use memories::{brief, feedback, memory_stats, recall, remember, supersede, verify};
 pub use search::search;
 pub use status::status;
 pub use sync::{manifest, prune, sync};

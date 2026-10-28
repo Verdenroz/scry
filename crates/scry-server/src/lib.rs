@@ -23,6 +23,7 @@ use scry_core::config::{Config, HydeMode, IndexConfig, MemoryConfig};
 use scry_core::embed::{Embedder, HttpEmbedder};
 use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
+use scry_core::verify::Verifier;
 
 const MAX_SYNC_BODY_BYTES: usize = 64 * 1024 * 1024;
 const QUERY_CACHE_ENTRIES: usize = 256;
@@ -37,6 +38,7 @@ pub struct AppState {
     pub memory_config: MemoryConfig,
     pub tavily: Option<tavily::TavilyClient>,
     pub rerank: Option<RerankClient>,
+    pub verify: Option<Verifier>,
     pub query_cache: QueryCache,
 }
 
@@ -61,6 +63,7 @@ impl AppState {
             memory_config: config.memory.clone(),
             tavily: config.tavily.clone().map(tavily::TavilyClient::new),
             rerank: config.rerank.clone().map(RerankClient::new),
+            verify: config.verify.clone().map(Verifier::new),
             query_cache: QueryCache::new(QUERY_CACHE_ENTRIES),
         }
     }
@@ -79,6 +82,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/memories/brief", post(routes::brief))
         .route("/v1/memories/supersede", post(routes::supersede))
         .route("/v1/memories/stats", get(routes::memory_stats))
+        .route("/v1/memories/verify", post(routes::verify))
         .route("/v1/web/search", post(routes::web_search))
         .route("/v1/answer", post(routes::answer))
         .layer(middleware::from_fn_with_state(

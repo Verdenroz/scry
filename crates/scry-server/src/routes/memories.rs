@@ -11,7 +11,7 @@ use crate::AppState;
 use crate::api::{
     BriefRequest, BriefResponse, FeedbackRequest, FeedbackResponse, MemoryDto, MemoryStatsResponse,
     RecallRequest, RecallResponse, RememberRequest, RememberResponse, SourceStatsDto,
-    SupersedeRequest, SupersedeResponse,
+    SupersedeRequest, SupersedeResponse, VerifyRequest, VerifyResponse,
 };
 use crate::error::ApiError;
 
@@ -168,5 +168,24 @@ pub async fn memory_stats(
                 noise: s.noise,
             })
             .collect(),
+    }))
+}
+
+pub async fn verify(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<VerifyRequest>,
+) -> Result<Json<VerifyResponse>, ApiError> {
+    let Some(verifier) = &state.verify else {
+        return Ok(Json(VerifyResponse {
+            configured: false,
+            score: None,
+            supported: None,
+        }));
+    };
+    let score = verifier.score(&request.claim, &request.evidence).await?;
+    Ok(Json(VerifyResponse {
+        configured: true,
+        score: Some(score),
+        supported: Some(score >= verifier.threshold()),
     }))
 }
