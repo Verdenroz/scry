@@ -1,0 +1,76 @@
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import capture_transcript as ct
+
+FIXTURE = str(Path(__file__).resolve().parent / "fixtures" / "session.jsonl")
+
+
+class LoadTests(unittest.TestCase):
+    def test_entries_skip_meta_sidechain_and_garbage(self):
+        entries, total = ct.load(FIXTURE, 0)
+        self.assertEqual(total, 10)
+        self.assertEqual(
+            [e.kind for e in entries],
+            ["user", "assistant", "tool_use", "tool_result", "tool_use", "tool_use", "tool_result", "tool_result"],
+        )
+        self.assertEqual([e.n for e in entries], list(range(1, 9)))
+
+    def test_list_content_tool_result_is_joined(self):
+        entries, _ = ct.load(FIXTURE, 0)
+        self.assertEqual(entries[6].body, "edited ok")
+
+    def test_offset_skips_processed_lines_and_renumbers(self):
+        entries, total = ct.load(FIXTURE, 6)
+        self.assertEqual(total, 10)
+        self.assertEqual(entries[0].n, 1)
+        self.assertEqual(entries[0].kind, "tool_use")
+
+    def test_edited_paths_only_from_edit_tools(self):
+        entries, _ = ct.load(FIXTURE, 0)
+        self.assertEqual(ct.edited_paths(entries), ["/repo/src/lib.rs"])
+
+    def test_first_prompt_and_tool_call_count(self):
+        entries, _ = ct.load(FIXTURE, 0)
+        self.assertEqual(ct.first_prompt(entries), "why does the build fail on arm?")
+        self.assertEqual(ct.tool_calls(entries), 3)
+
+    def test_injected_memories_parse_kind_id_and_content(self):
+        self.assertEqual(
+            ct.injected_memories(FIXTURE),
+            {
+                12: ("lesson", "vec partition keys come first"),
+                40: ("fact", "chunker is server side"),
+            },
+        )
+
+
+class RenderTests(unittest.TestCase):
+    def test_numbered_lines(self):
+        entries, _ = ct.load(FIXTURE, 0)
+        text, kept = ct.render(entries)
+        self.assertIn("[#1] user: why does the build fail on arm?", text)
+        self.assertIn('[#3] tool_use: Bash {"command":"cargo build"}', text)
+        self.assertEqual(set(kept), set(range(1, 9)))
+
+    def test_tool_result_truncated_to_tail(self):
+        obj = {"type": "user", "message": {"content": [{"type": "tool_result", "content": "a" * 3000 + "END"}]}}
+        (_, body, _), = ct.entry_parts(obj)
+        self.assertEqual(len(body), ct.RESULT_TAIL + 3)
+        self.assertTrue(body.startswith("...") and body.endswith("END"))
+
+    def test_cap_keeps_head_and_tail_and_drops_middle(self):
+        entries = [ct.Entry(i, "assistant", "w" * 100) for i in range(1, 101)]
+        text, kept = ct.render(entries, cap=3000)
+        self.assertIn(1, kept)
+        self.assertIn(100, kept)
+        self.assertNotIn(50, kept)
+        self.assertIn("omitted", text)
+        self.assertLessEqual(len(text), 3200)
+
+
+if __name__ == "__main__":
+    unittest.main()
