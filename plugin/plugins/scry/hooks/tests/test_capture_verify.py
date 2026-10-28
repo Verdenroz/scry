@@ -153,6 +153,7 @@ class PlanTests(unittest.TestCase):
             },
             KEPT,
             set(),
+            {1, 2, 3, 4},
         )
         self.assertEqual(out["helpful"], [])
         self.assertEqual(out["noise"], [4])
@@ -172,12 +173,29 @@ class PlanTests(unittest.TestCase):
             },
             KEPT,
             set(),
+            {1, 2, 3, 4},
         )
         self.assertEqual(out["helpful"], [1])
         self.assertEqual(out["noise"], [3])
 
+    def test_ids_outside_the_shown_set_are_dropped(self):
+        proof = cited(3, QUOTE)
+        out = cv.plan(
+            {
+                "memories": [memory("lesson", proof, supersedes=212)],
+                "reinforce": [{"id": 9, "evidence": proof}],
+                "contradict": [{"id": 8, "evidence": proof}],
+            },
+            KEPT,
+            set(),
+            {7},
+        )
+        self.assertEqual(out["memories"][0]["kind"], "lesson")
+        self.assertIsNone(out["memories"][0]["supersedes"])
+        self.assertEqual((out["helpful"], out["noise"]), ([], []))
+
     def test_memories_capped_at_five(self):
-        out = cv.plan({"memories": [memory("episode", None)] * 8}, KEPT, set())
+        out = cv.plan({"memories": [memory("episode", None)] * 8}, KEPT, set(), set())
         self.assertEqual(len(out["memories"]), cv.MAX_MEMORIES)
 
 

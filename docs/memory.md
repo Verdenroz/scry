@@ -163,7 +163,9 @@ tail of each tool result, each numbered `[#n]`) and makes one headless
 session plus a `scry recall` on the first prompt, and returns up to five
 memories plus memories to reinforce or contradict. A per-session state
 file records how far the transcript was processed, so `PreCompact` then
-`SessionEnd` covers each part once. Sessions with fewer than three tool
+`SessionEnd` covers each part once; concurrent passes for one session
+serialize on a per-session lock. The recall it runs does not count as a
+retrieval (`--no-touch`). Sessions with fewer than three tool
 calls in the new range are skipped. `SCRY_CAPTURE_MODEL` picks the model
 and `SCRY_CAPTURE_LOG` the one-line-per-pass log.
 
@@ -187,8 +189,9 @@ transcript the model saw.
 
 A reinforce claim needs a tool-result quote and runs `scry memory helpful`;
 a contradict claim needs a tool-result or user quote and runs
-`scry memory noise`. Unproven claims are ignored, and each id is marked at
-most once per session. A new memory may name the one it replaces; the
+`scry memory noise`. Unproven claims are ignored, ids the model was not
+shown (reinforce, contradict, supersedes) are dropped, and each id is
+marked at most once per session. A new memory may name the one it replaces; the
 supersession is applied only if the new memory kept its kind after the
 proof check. At `SessionStart` the plugin injects `scry memory brief`, so
 the next session starts from these memories and marks them in turn.

@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 import subprocess
@@ -85,6 +86,13 @@ def unmarked(ids, done) -> list:
 
 
 def capture(payload: dict) -> dict:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(STATE_DIR / f"{payload['session_id']}.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return capture_range(payload)
+
+
+def capture_range(payload: dict) -> dict:
     cwd = payload.get("cwd") or os.getcwd()
     path = payload["transcript_path"]
     state_file = STATE_DIR / f"{payload['session_id']}.json"
@@ -101,7 +109,7 @@ def capture(payload: dict) -> dict:
     output = capture_model.call(
         capture_model.build_prompt(text, existing), str(STATE_DIR)
     )
-    plan = capture_verify.plan(output, kept, edited)
+    plan = capture_verify.plan(output, kept, edited, set(existing))
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
     written = write_plan(plan, cwd)

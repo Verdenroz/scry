@@ -13,7 +13,7 @@ def run(args, cwd, timeout=60):
 
 
 def recall(query: str, cwd: str) -> dict:
-    result = run(["recall", query, "-m", "8"], cwd)
+    result = run(["recall", query, "-m", "8", "--no-touch"], cwd)
     return capture_transcript.parse_memories(result.stdout)
 
 

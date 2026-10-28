@@ -46,14 +46,21 @@ def settle(memory, kept, edited):
     }
 
 
-def proven_ids(claims, kept, kinds) -> list:
-    return [c["id"] for c in claims or [] if holds(c.get("evidence"), kept, kinds)]
+def proven_ids(claims, kept, kinds, shown) -> list:
+    return [
+        c["id"]
+        for c in claims or []
+        if c["id"] in shown and holds(c.get("evidence"), kept, kinds)
+    ]
 
 
-def plan(output, kept, edited):
-    memories = output.get("memories") or []
+def plan(output, kept, edited, shown):
+    memories = [settle(m, kept, edited) for m in output.get("memories") or []]
     return {
-        "memories": [settle(m, kept, edited) for m in memories[:MAX_MEMORIES]],
-        "helpful": proven_ids(output.get("reinforce"), kept, REINFORCE_KINDS),
-        "noise": proven_ids(output.get("contradict"), kept, CONTRADICT_KINDS),
+        "memories": [
+            {**m, "supersedes": m["supersedes"] if m["supersedes"] in shown else None}
+            for m in memories[:MAX_MEMORIES]
+        ],
+        "helpful": proven_ids(output.get("reinforce"), kept, REINFORCE_KINDS, shown),
+        "noise": proven_ids(output.get("contradict"), kept, CONTRADICT_KINDS, shown),
     }

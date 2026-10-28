@@ -32,7 +32,7 @@ GLOBAL_NOTE = (
 
 
 BRIEF_HEADER = (
-    "Memories from past sessions on this codebase (mark useful ones with "
+    "Memories from past sessions here (mark useful ones with "
     "`scry memory helpful <id>`, wrong ones with `scry memory noise <id>`):\n"
 )
 

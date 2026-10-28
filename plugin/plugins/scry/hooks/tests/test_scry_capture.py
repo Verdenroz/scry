@@ -183,6 +183,34 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(self.run_capture(second)["skipped"], "few tool calls")
         self.assertEqual(second.calls, [])
 
+    def test_later_pass_sees_only_entries_after_the_saved_offset(self):
+        out = {"memories": [], "reinforce": [], "contradict": []}
+        self.run_capture(Fake(out))
+        more = [
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "id": f"n{i}", "name": "Read", "input": {}}
+                        for i in range(3)
+                    ]
+                },
+            },
+        ]
+        with open(self.payload["transcript_path"], "a") as handle:
+            handle.write(json.dumps(more[0]) + "\n")
+        fake = Fake(out)
+        self.run_capture(fake)
+        ((_, kwargs),) = [c for c in fake.calls if c[0][0] == "claude"]
+        self.assertNotIn("cargo build", kwargs["input"])
+        self.assertIn("[#1] tool_use: Read", kwargs["input"])
+        self.assertTrue((self.root / "state" / "s1.lock").exists())
+
+    def test_recall_does_not_touch_access_stats(self):
+        fake = Fake({"memories": [], "reinforce": [], "contradict": []})
+        self.run_capture(fake)
+        self.assertIn("--no-touch", fake.scry("scry", "recall")[0])
+
     def test_few_tool_calls_skip_without_advancing(self):
         Path(self.payload["transcript_path"]).write_text(
             json.dumps({"type": "user", "message": {"content": "hi there"}}) + "\n"
