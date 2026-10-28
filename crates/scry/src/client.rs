@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, anyhow};
 use scry_core::config::ClientConfig;
 use scry_server::api::{
-    AnswerRequest, AnswerResponse, ErrorResponse, FeedbackRequest, FeedbackResponse,
-    ManifestRequest, ManifestResponse, PruneRequest, PruneResponse, RecallRequest, RecallResponse,
-    RememberRequest, RememberResponse, SearchRequest, SearchResponse, StatusResponse, SyncRequest,
-    SyncResponse, WebSearchRequest, WebSearchResponse,
+    AnswerRequest, AnswerResponse, BriefRequest, BriefResponse, ErrorResponse, FeedbackRequest,
+    FeedbackResponse, ManifestRequest, ManifestResponse, MemoryStatsResponse, PruneRequest,
+    PruneResponse, RecallRequest, RecallResponse, RememberRequest, RememberResponse, SearchRequest,
+    SearchResponse, StatusResponse, SupersedeRequest, SupersedeResponse, SyncRequest, SyncResponse,
+    WebSearchRequest, WebSearchResponse,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -89,6 +90,14 @@ impl ApiClient {
         self.post("/v1/memories/feedback", request).await
     }
 
+    pub async fn brief(&self, request: &BriefRequest) -> Result<BriefResponse> {
+        self.post("/v1/memories/brief", request).await
+    }
+
+    pub async fn supersede(&self, request: &SupersedeRequest) -> Result<SupersedeResponse> {
+        self.post("/v1/memories/supersede", request).await
+    }
+
     pub async fn web_search(&self, request: &WebSearchRequest) -> Result<WebSearchResponse> {
         self.post("/v1/web/search", request).await
     }
@@ -99,6 +108,16 @@ impl ApiClient {
 
     pub async fn status(&self) -> Result<StatusResponse> {
         let mut builder = self.http.get(format!("{}/v1/status", self.base_url));
+        if let Some(token) = &self.token {
+            builder = builder.bearer_auth(token);
+        }
+        Ok(builder.send().await?.error_for_status()?.json().await?)
+    }
+
+    pub async fn memory_stats(&self) -> Result<MemoryStatsResponse> {
+        let mut builder = self
+            .http
+            .get(format!("{}/v1/memories/stats", self.base_url));
         if let Some(token) = &self.token {
             builder = builder.bearer_auth(token);
         }

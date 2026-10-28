@@ -9,7 +9,7 @@ pub mod watch;
 
 use anyhow::Result;
 use scry_core::config::Config;
-use scry_core::repo::{KeySource, RepoIdentity, detect};
+use scry_core::repo::{KeySource, RepoIdentity, detect, path_scope_key};
 
 use crate::client::ApiClient;
 
@@ -23,6 +23,16 @@ pub struct RepoContext {
 /// treats such a directory as a project repo.
 pub fn at_or_above_home(root: &std::path::Path) -> bool {
     std::env::var_os("HOME").is_some_and(|home| std::path::Path::new(&home).starts_with(root))
+}
+
+/// Memory scope for this directory: the repo key, or a home-relative path
+/// key when the directory is at or above `$HOME`.
+pub fn memory_scope_key(identity: &RepoIdentity) -> String {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    match home {
+        Some(home) if home.starts_with(&identity.root) => path_scope_key(&identity.root, &home),
+        _ => identity.key.clone(),
+    }
 }
 
 pub fn repo_context() -> Result<RepoContext> {
