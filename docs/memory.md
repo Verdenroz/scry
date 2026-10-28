@@ -96,3 +96,59 @@ capture: 12 memories (3 stale), 40 retrievals, 9 helpful, 2 noise
 Retrievals sum each memory's access count; noise counts `scry memory
 noise` votes. The Claude Code plugin injects the top-scoring memories on
 each prompt and lets the agent report which ones helped.
+
+## Verification
+
+An optional `[verify]` section adds a claim verifier: `scry memory verify
+"claim" --evidence "text"` prints `supported 0.83`, `unsupported 0.04`, or
+`not configured`. The score is P(evidence supports claim); `supported` means
+the score reaches `threshold`, which lives only in the server config. Without
+`[verify]` nothing is verified and nothing falls back to `[chat]`. A model
+or server error exits nonzero, as does a model that answers neither yes nor
+no, so callers should treat failure as unsupported.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `api` | `chat` | `chat` or `systemone` |
+| `base_url` | required | endpoint root ending in `/v1` for both modes |
+| `model` | required | model name sent in the request |
+| `api_key` | `ollama` | bearer token; `env:VAR` reads an environment variable |
+| `threshold` | `0.5` | cut for `supported`; not tuned to any model |
+| `prompt` | built in | chat prompt override; must contain `{claim}` and `{evidence}` |
+
+`chat` asks an OpenAI-compatible model a yes/no question at
+`{base_url}/chat/completions` with one output token and logprobs, and scores
+P(yes) / (P(yes) + P(no)) over the top tokens. Servers that return no
+logprobs are scored from the answer text (`yes` is 1.0, `no` is 0.0).
+Thinking is always disabled for Qwen-style models. `systemone` posts
+`{claim, evidence}` to `{base_url}/systemone` and reads the `noul`
+answer as the score.
+
+```toml
+[verify]
+base_url = "http://localhost:12434/v1"
+model = "qwen3.6:35b-a3b"
+threshold = 0.2
+```
+
+```toml
+[verify]
+api = "systemone"
+base_url = "http://localhost:8080/v1"
+model = "jevos-v4"
+```
+
+### Calibration
+
+`scry memory verify --eval eval/verify-pairs.jsonl` scores labelled rows
+(`{"claim", "evidence", "label": 1|0}`) through the configured verifier and
+prints the AUROC, median latency, false accepts and false rejects at the
+configured threshold, and the score above which no unsupported claim was
+accepted. Pick a threshold from your own model and data.
+
+`eval/verify-pairs.jsonl` holds 28 pairs from real sessions (14 supported).
+On it, one user measured AUROC 0.98 for the llama-swap `qwen3.6:35b-a3b`
+example above, with zero false accepts at 0.2 and six good claims rejected
+at 0.5. That is one measurement on a small set, not a default. The same
+set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77 depending on
+phrasing, so calibrate before trusting any verifier.
