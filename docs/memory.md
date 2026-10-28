@@ -134,7 +134,7 @@ threshold = 0.2
 ```toml
 [verify]
 api = "systemone"
-base_url = "http://localhost:8080/v1"
+base_url = "http://localhost:8017/v1"
 model = "jevos-v4"
 ```
 
@@ -148,7 +148,7 @@ accepted. Pick a threshold from your own model and data.
 
 `eval/verify-pairs.jsonl` holds 28 pairs from real sessions (14 supported).
 On it, one user measured AUROC 0.98 for the llama-swap `qwen3.6:35b-a3b`
-example above, with zero false accepts at 0.2 and six good claims rejected
-at 0.5. That is one measurement on a small set, not a default. The same
+example above, with zero false accepts and two of 14 good claims rejected at 0.2
+(six rejected at 0.5). That is one measurement on a small set, not a default. The same
 set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77 depending on
 phrasing, so calibrate before trusting any verifier.
