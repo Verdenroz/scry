@@ -353,6 +353,13 @@ class ReaffirmTests(CaptureCase):
             [["scry", "memory", "reaffirm", "31", "--evidence", f"[#5] {QUOTE}"]],
         )
 
+    def test_reaffirm_only_plan_indexes_before_reaffirming(self):
+        fake = Fake(reaffirm_output(), stale=STALE_LINE)
+        self.run_capture(fake)
+        order = [" ".join(a[:3]) for a, _ in fake.calls if a[0] == "scry"]
+        self.assertLess(order.index("scry index"), order.index("scry memory reaffirm"))
+        self.assertEqual(len(fake.scry("scry", "index")), 1)
+
     def test_not_configured_verifier_still_reaffirms(self):
         fake = Fake(reaffirm_output(), stale=STALE_LINE)
         self.assertEqual(self.run_capture(fake)["reaffirmed"], [31])
@@ -363,6 +370,7 @@ class ReaffirmTests(CaptureCase):
         )
         result = self.run_capture(fake)
         self.assertEqual((result["reaffirmed"], result["reaffirm_failed"]), ([], []))
+        self.assertEqual(result["reaffirm_unsupported"], [31])
         self.assertEqual(fake.scry("scry", "memory", "reaffirm"), [])
 
     def test_id_not_in_stale_block_is_ignored(self):

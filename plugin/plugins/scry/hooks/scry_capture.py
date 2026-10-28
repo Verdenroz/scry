@@ -69,7 +69,7 @@ def repo_relative(paths, cwd: str) -> set:
 
 
 def write_plan(plan: dict, cwd: str) -> int:
-    if any(m["anchors"] for m in plan["memories"]):
+    if plan["reaffirm"] or any(m["anchors"] for m in plan["memories"]):
         capture_scry.index(cwd)
     written = 0
     for memory in plan["memories"]:
@@ -118,17 +118,22 @@ def verify_memories(memories, cwd: str):
 
 
 def reaffirm_memories(claims, cwd: str) -> dict:
-    done, failed = [], []
+    done, failed, unsupported = [], [], []
     for claim in claims:
         try:
             verdict, _ = capture_scry.verify(claim["content"], claim["source"], cwd)
             if verdict == "unsupported":
+                unsupported.append(claim["id"])
                 continue
             ok = capture_scry.reaffirm(claim["id"], claim["evidence"], cwd)
         except Exception:
             ok = False
         (done if ok else failed).append(claim["id"])
-    return {"reaffirmed": done, "reaffirm_failed": failed}
+    return {
+        "reaffirmed": done,
+        "reaffirm_failed": failed,
+        "reaffirm_unsupported": unsupported,
+    }
 
 
 def unmarked(ids, done) -> list:
