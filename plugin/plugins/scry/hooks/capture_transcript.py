@@ -6,6 +6,7 @@ RESULT_TAIL = 1500
 INPUT_CAP = 400
 RENDER_CAP = 120_000
 EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
+MEMORY_CMD = re.compile(r"\bscry\s+(recall|remember|memory)\b")
 INJECTED = re.compile(r"^\[(\w+) #(\d+)\](?: \([^)]*\))*\s*(.*)$", re.MULTILINE)
 
 
@@ -15,6 +16,7 @@ class Entry:
     kind: str
     body: str
     edited: str = ""
+    echoed: bool = False
 
 
 def tool_result_text(content) -> str:
@@ -25,27 +27,41 @@ def tool_result_text(content) -> str:
     )
 
 
-def entry_parts(obj):
+def result_text(block) -> str:
+    text = tool_result_text(block.get("content") or "")
+    return "..." + text[-RESULT_TAIL:] if len(text) > RESULT_TAIL else text
+
+
+def echoes_memory(name: str, args: dict) -> bool:
+    return name in EDIT_TOOLS or bool(MEMORY_CMD.search(args.get("command") or ""))
+
+
+def entry_parts(obj, echoing=frozenset()):
     content = (obj.get("message") or {}).get("content")
     if obj.get("type") == "user":
         if isinstance(content, str):
             if not obj.get("isMeta"):
-                yield "user", content, ""
+                yield "user", content, "", False
             return
         for block in content or []:
             if block.get("type") == "tool_result":
-                text = tool_result_text(block.get("content") or "")
-                yield "tool_result", ("..." + text[-RESULT_TAIL:] if len(text) > RESULT_TAIL else text), ""
+                echoed = block.get("tool_use_id") in echoing
+                yield "tool_result", result_text(block), "", echoed
     elif obj.get("type") == "assistant":
         for block in content or []:
             if block.get("type") == "text":
-                yield "assistant", block.get("text", ""), ""
+                yield "assistant", block.get("text", ""), "", False
             elif block.get("type") == "tool_use":
                 name = block.get("name")
                 args = block.get("input") or {}
                 shown = json.dumps(args, separators=(",", ":"))[:INPUT_CAP]
                 edited = args.get("file_path") or args.get("notebook_path") or ""
-                yield "tool_use", f"{name} {shown}", edited if name in EDIT_TOOLS else ""
+                yield (
+                    "tool_use",
+                    f"{name} {shown}",
+                    edited if name in EDIT_TOOLS else "",
+                    False,
+                )
 
 
 def read_lines(path: str):
@@ -57,14 +73,30 @@ def read_lines(path: str):
                 yield {}
 
 
+def echoing_calls(obj) -> set:
+    content = (obj.get("message") or {}).get("content")
+    if obj.get("type") != "assistant" or not isinstance(content, list):
+        return set()
+    return {
+        block.get("id")
+        for block in content
+        if block.get("type") == "tool_use"
+        and echoes_memory(block.get("name"), block.get("input") or {})
+    }
+
+
 def load(path: str, offset: int):
     entries = []
+    echoing = set()
     total = 0
     for total, obj in enumerate(read_lines(path), 1):
-        if total <= offset or obj.get("isSidechain"):
+        if obj.get("isSidechain"):
             continue
-        for kind, body, edited in entry_parts(obj):
-            entries.append(Entry(len(entries) + 1, kind, body, edited))
+        echoing |= echoing_calls(obj)
+        if total <= offset:
+            continue
+        for kind, body, edited, echoed in entry_parts(obj, echoing):
+            entries.append(Entry(len(entries) + 1, kind, body, edited, echoed))
     return entries, total
 
 
@@ -79,14 +111,18 @@ def strings(value):
             yield from strings(item)
 
 
+def parse_memories(text: str) -> dict:
+    return {
+        int(ident): (kind, content) for kind, ident, content in INJECTED.findall(text)
+    }
+
+
 def injected_memories(path: str) -> dict:
     found = {}
     for obj in read_lines(path):
-        if obj.get("type") not in ("attachment", "system"):
-            continue
-        for text in strings(obj):
-            for kind, ident, content in INJECTED.findall(text):
-                found[int(ident)] = (kind, content)
+        if obj.get("type") in ("attachment", "system"):
+            for text in strings(obj):
+                found.update(parse_memories(text))
     return found
 
 
@@ -117,7 +153,9 @@ def render(entries, cap: int = RENDER_CAP):
         head.append(entry)
         used += size
     tail, budget = [], cap - used
-    for entry, size in zip(reversed(entries[len(head):]), reversed(sizes[len(head):])):
+    for entry, size in zip(
+        reversed(entries[len(head) :]), reversed(sizes[len(head) :])
+    ):
         if size > budget:
             break
         tail.append(entry)

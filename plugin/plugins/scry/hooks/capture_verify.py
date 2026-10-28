@@ -1,6 +1,8 @@
 MAX_MEMORIES = 5
 MAX_CONTENT = 300
 MIN_QUOTE = 20
+REINFORCE_KINDS = {"tool_result"}
+CONTRADICT_KINDS = {"tool_result", "user"}
 PROOF_KINDS = {
     "lesson": {"tool_result"},
     "fact": {"tool_result"},
@@ -19,7 +21,7 @@ def holds(evidence, kept, kinds=None) -> bool:
     quote = normalize(evidence.get("quote", ""))
     if entry is None or len(quote) < MIN_QUOTE:
         return False
-    if kinds is not None and entry.kind not in kinds:
+    if entry.echoed or (kinds is not None and entry.kind not in kinds):
         return False
     return quote in normalize(entry.body)
 
@@ -44,10 +46,14 @@ def settle(memory, kept, edited):
     }
 
 
+def proven_ids(claims, kept, kinds) -> list:
+    return [c["id"] for c in claims or [] if holds(c.get("evidence"), kept, kinds)]
+
+
 def plan(output, kept, edited):
     memories = output.get("memories") or []
     return {
         "memories": [settle(m, kept, edited) for m in memories[:MAX_MEMORIES]],
-        "helpful": [r["id"] for r in output.get("reinforce") or [] if holds(r.get("evidence"), kept)],
-        "noise": [r["id"] for r in output.get("contradict") or [] if holds(r.get("evidence"), kept)],
+        "helpful": proven_ids(output.get("reinforce"), kept, REINFORCE_KINDS),
+        "noise": proven_ids(output.get("contradict"), kept, CONTRADICT_KINDS),
     }

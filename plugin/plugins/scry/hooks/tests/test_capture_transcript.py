@@ -1,4 +1,6 @@
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,7 +17,16 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(total, 10)
         self.assertEqual(
             [e.kind for e in entries],
-            ["user", "assistant", "tool_use", "tool_result", "tool_use", "tool_use", "tool_result", "tool_result"],
+            [
+                "user",
+                "assistant",
+                "tool_use",
+                "tool_result",
+                "tool_use",
+                "tool_use",
+                "tool_result",
+                "tool_result",
+            ],
         )
         self.assertEqual([e.n for e in entries], list(range(1, 9)))
 
@@ -48,6 +59,53 @@ class LoadTests(unittest.TestCase):
         )
 
 
+def results_after(tool, args, offset=0):
+    use = {
+        "type": "assistant",
+        "message": {
+            "content": [{"type": "tool_use", "id": "x", "name": tool, "input": args}]
+        },
+    }
+    result = {
+        "type": "user",
+        "message": {
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "x",
+                    "content": "[lesson #12] echoed",
+                }
+            ]
+        },
+    }
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl") as handle:
+        handle.write(json.dumps(use) + "\n" + json.dumps(result) + "\n")
+        handle.flush()
+        return ct.load(handle.name, offset)[0][-1]
+
+
+class EchoTests(unittest.TestCase):
+    def test_scry_memory_commands_are_echoed(self):
+        for command in (
+            'scry recall "vec"',
+            "cd x && scry memory brief",
+            'scry remember "a"',
+        ):
+            self.assertTrue(results_after("Bash", {"command": command}).echoed, command)
+
+    def test_edit_results_are_echoed(self):
+        self.assertTrue(results_after("Write", {"file_path": "/a"}).echoed)
+
+    def test_ordinary_results_are_not(self):
+        self.assertFalse(results_after("Bash", {"command": "cargo build"}).echoed)
+        self.assertFalse(results_after("Bash", {"command": "scry index"}).echoed)
+
+    def test_call_before_offset_still_taints_result(self):
+        self.assertTrue(
+            results_after("Bash", {"command": "scry recall x"}, offset=1).echoed
+        )
+
+
 class RenderTests(unittest.TestCase):
     def test_numbered_lines(self):
         entries, _ = ct.load(FIXTURE, 0)
@@ -57,8 +115,13 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(set(kept), set(range(1, 9)))
 
     def test_tool_result_truncated_to_tail(self):
-        obj = {"type": "user", "message": {"content": [{"type": "tool_result", "content": "a" * 3000 + "END"}]}}
-        (_, body, _), = ct.entry_parts(obj)
+        obj = {
+            "type": "user",
+            "message": {
+                "content": [{"type": "tool_result", "content": "a" * 3000 + "END"}]
+            },
+        }
+        ((_, body, _, _),) = ct.entry_parts(obj)
         self.assertEqual(len(body), ct.RESULT_TAIL + 3)
         self.assertTrue(body.startswith("...") and body.endswith("END"))
 
