@@ -28,6 +28,14 @@ impl ApiClient {
         }
     }
 
+    async fn get<Resp: DeserializeOwned>(&self, path: &str) -> Result<Resp> {
+        let mut builder = self.http.get(format!("{}{path}", self.base_url));
+        if let Some(token) = &self.token {
+            builder = builder.bearer_auth(token);
+        }
+        Ok(builder.send().await?.error_for_status()?.json().await?)
+    }
+
     async fn post<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         path: &str,
@@ -111,20 +119,10 @@ impl ApiClient {
     }
 
     pub async fn status(&self) -> Result<StatusResponse> {
-        let mut builder = self.http.get(format!("{}/v1/status", self.base_url));
-        if let Some(token) = &self.token {
-            builder = builder.bearer_auth(token);
-        }
-        Ok(builder.send().await?.error_for_status()?.json().await?)
+        self.get("/v1/status").await
     }
 
     pub async fn memory_stats(&self) -> Result<MemoryStatsResponse> {
-        let mut builder = self
-            .http
-            .get(format!("{}/v1/memories/stats", self.base_url));
-        if let Some(token) = &self.token {
-            builder = builder.bearer_auth(token);
-        }
-        Ok(builder.send().await?.error_for_status()?.json().await?)
+        self.get("/v1/memories/stats").await
     }
 }

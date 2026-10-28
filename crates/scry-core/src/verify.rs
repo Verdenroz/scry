@@ -37,13 +37,12 @@ struct ChatChoice {
 
 #[derive(Deserialize, Default)]
 struct ChatMessage {
-    #[serde(default)]
-    content: String,
+    content: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct ChatLogprobs {
-    content: Vec<TokenLogprobs>,
+    content: Option<Vec<TokenLogprobs>>,
 }
 
 #[derive(Deserialize)]
@@ -119,10 +118,7 @@ impl Verifier {
     }
 
     async fn score_systemone(&self, claim: &str, evidence: &str) -> Result<f64> {
-        let url = format!(
-            "{}/v1/systemone",
-            self.config.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/systemone", self.config.base_url.trim_end_matches('/'));
         let body = serde_json::json!({
             "model": self.config.model,
             "state": { "claim": claim, "evidence": evidence },
@@ -175,7 +171,7 @@ fn render_prompt(config: &VerifyConfig, claim: &str, evidence: &str) -> String {
 fn chat_score(choice: ChatChoice) -> Result<f64> {
     let first = choice
         .logprobs
-        .and_then(|l| l.content.into_iter().next())
+        .and_then(|l| l.content?.into_iter().next())
         .map(|t| t.top_logprobs);
     if let Some(top) = first {
         let mass = |word: &str| -> f64 {
@@ -189,7 +185,14 @@ fn chat_score(choice: ChatChoice) -> Result<f64> {
             return Ok(yes / (yes + no));
         }
     }
-    match choice.message.content.trim().to_lowercase().as_str() {
+    match choice
+        .message
+        .content
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
         "yes" => Ok(1.0),
         "no" => Ok(0.0),
         _ => Err(Error::Verify("model gave no yes/no answer".to_string())),
@@ -228,6 +231,8 @@ mod tests {
                 {"token":"maybe","logprob":-0.1}]}]}}"#,
         );
         assert_eq!(chat_score(no_mass).unwrap(), 1.0);
+        let nulls = choice(r#"{"message":{"content":null},"logprobs":{"content":null}}"#);
+        assert!(chat_score(nulls).is_err());
     }
 
     #[test]

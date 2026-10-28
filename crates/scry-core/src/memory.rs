@@ -79,22 +79,20 @@ pub fn recall_score(similarity: f64, row: &MemoryRow, now_epoch: i64, half_life_
 }
 
 pub fn validate_kind(kind: &str) -> Result<()> {
-    if KINDS.contains(&kind) {
-        return Ok(());
-    }
-    Err(Error::Config(format!(
-        "unknown memory kind {kind:?}; expected one of {}",
-        KINDS.join(", ")
-    )))
+    validate_in(kind, KINDS, "kind")
 }
 
 pub fn validate_source(source: &str) -> Result<()> {
-    if SOURCES.contains(&source) {
+    validate_in(source, SOURCES, "source")
+}
+
+fn validate_in(value: &str, allowed: &[&str], label: &str) -> Result<()> {
+    if allowed.contains(&value) {
         return Ok(());
     }
     Err(Error::Config(format!(
-        "unknown memory source {source:?}; expected one of {}",
-        SOURCES.join(", ")
+        "unknown memory {label} {value:?}; expected one of {}",
+        allowed.join(", ")
     )))
 }
 
@@ -241,14 +239,7 @@ pub fn brief(
         .into_iter()
         .map(|row| {
             let global = row.repo_id.is_none();
-            let hit = MemoryHit {
-                score: recall_score(1.0, &row, now, half_life_days),
-                id: row.id,
-                kind: row.kind,
-                content: row.content,
-                stale: false,
-            };
-            (hit, global)
+            (brief_hit(row, now, half_life_days, false), global)
         })
         .collect();
     ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
@@ -266,15 +257,19 @@ pub fn brief(
     let went_stale = store
         .recently_stale_memories(repo_id, since, BRIEF_STALE_MAX)?
         .into_iter()
-        .map(|row| MemoryHit {
-            score: recall_score(1.0, &row, now, half_life_days),
-            id: row.id,
-            kind: row.kind,
-            content: row.content,
-            stale: true,
-        })
+        .map(|row| brief_hit(row, now, half_life_days, true))
         .collect();
     Ok(Brief { top, went_stale })
+}
+
+fn brief_hit(row: MemoryRow, now: i64, half_life_days: f64, stale: bool) -> MemoryHit {
+    MemoryHit {
+        score: recall_score(1.0, &row, now, half_life_days),
+        id: row.id,
+        kind: row.kind,
+        content: row.content,
+        stale,
+    }
 }
 
 #[cfg(test)]

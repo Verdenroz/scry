@@ -53,7 +53,7 @@ flips to `stale`: still retrievable, demoted to half weight, and flagged
 in output. This is the mechanical answer to "does this memory need
 updating"; anchored memories cannot silently stay confidently wrong.
 
-The moment a memory goes stale is recorded, so a brief can surface what
+Scry records when a memory goes stale, so a brief can surface what
 changed recently.
 
 ## Brief
@@ -73,9 +73,9 @@ may be wrong now (anchored code changed):
 
 The second block lists up to 5 memories that went stale within the last
 `--stale-days`. Inside a repo or path scope at most 2 global memories
-make the top list, so scope memories are not crowded out. Nothing prints when both lists are empty. A brief does
-not count as a retrieval and never refreshes recency; neither does
-`scry recall --no-touch`.
+make the top list, so scope memories are not crowded out. Nothing prints
+when both lists are empty. A brief does not count as a retrieval and never
+refreshes recency; neither does `scry recall --no-touch`.
 
 ## Supersede
 
@@ -147,8 +147,8 @@ configured threshold, and the score above which no unsupported claim was
 accepted. Pick a threshold from your own model and data.
 
 `eval/verify-pairs.jsonl` holds 28 pairs from real sessions (14 supported).
-On it, one user measured AUROC 0.98 for the llama-swap `qwen3.6:35b-a3b`
-example above, with zero false accepts and two of 14 good claims rejected at 0.2
-(six rejected at 0.5). That is one measurement on a small set, not a default. The same
-set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77 depending on
-phrasing, so calibrate before trusting any verifier.
+On it, the llama-swap `qwen3.6:35b-a3b` example above measured AUROC 0.98,
+with zero false accepts and two of 14 good claims rejected at 0.2 (six
+rejected at 0.5). That is one measurement on a small set, not a default.
+The same set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77
+depending on phrasing, so calibrate before trusting any verifier.

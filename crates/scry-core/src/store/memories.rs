@@ -207,12 +207,12 @@ impl Store {
         Ok(changed)
     }
 
-    /// Returns false, changing nothing, unless both memories exist and the
-    /// old one is not already superseded.
+    /// Returns false, changing nothing, unless both memories exist and
+    /// neither is already superseded.
     pub fn supersede_memory(&self, old_id: i64, new_id: i64) -> Result<bool> {
         let found: i64 = self.conn.query_row(
             "SELECT count(*) FROM memories
-             WHERE (id = ?1 AND superseded_by IS NULL) OR id = ?2",
+             WHERE id IN (?1, ?2) AND superseded_by IS NULL",
             params![old_id, new_id],
             |row| row.get(0),
         )?;
@@ -387,6 +387,8 @@ mod tests {
         assert!(store.supersede_memory(old, new).unwrap());
         let third = store.add_memory(&memory(None, "agent", 0.4), &[]).unwrap();
         assert!(!store.supersede_memory(old, third).unwrap());
+        assert!(!store.supersede_memory(new, old).unwrap());
+        assert!(!store.supersede_memory(third, old).unwrap());
         assert_eq!(store.live_memories(None).unwrap().len(), 2);
 
         let noise: i64 = store

@@ -385,25 +385,24 @@ impl Config {
         }
         self.server.auth_token = resolve_secret(self.server.auth_token.take());
         self.client.token = resolve_secret(self.client.token.take());
-        self.embedding.api_key =
-            resolve_secret(Some(std::mem::take(&mut self.embedding.api_key))).unwrap_or_default();
+        resolve_key(&mut self.embedding.api_key);
         if let Some(chat) = self.chat.as_mut() {
-            chat.api_key =
-                resolve_secret(Some(std::mem::take(&mut chat.api_key))).unwrap_or_default();
+            resolve_key(&mut chat.api_key);
         }
         if let Some(verify) = self.verify.as_mut() {
-            verify.api_key =
-                resolve_secret(Some(std::mem::take(&mut verify.api_key))).unwrap_or_default();
+            resolve_key(&mut verify.api_key);
         }
         if let Some(tavily) = self.tavily.as_mut() {
-            tavily.api_key =
-                resolve_secret(Some(std::mem::take(&mut tavily.api_key))).unwrap_or_default();
+            resolve_key(&mut tavily.api_key);
         }
         if let Some(rerank) = self.rerank.as_mut() {
-            rerank.api_key =
-                resolve_secret(Some(std::mem::take(&mut rerank.api_key))).unwrap_or_default();
+            resolve_key(&mut rerank.api_key);
         }
     }
+}
+
+fn resolve_key(key: &mut String) {
+    *key = resolve_secret(Some(std::mem::take(key))).unwrap_or_default();
 }
 
 #[cfg(test)]
