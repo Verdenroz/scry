@@ -18,8 +18,17 @@ QUOTE = "linker `cc` not found on this machine"
 
 
 class Fake:
-    def __init__(self, output, fail_anchored=False, verify=("not configured", 0)):
+    def __init__(
+        self,
+        output,
+        fail_anchored=False,
+        verify=("not configured", 0),
+        stale="",
+        reaffirm_code=0,
+    ):
         self.output = output
+        self.stale = stale
+        self.reaffirm_code = reaffirm_code
         self.fail_anchored = fail_anchored
         self.verify = verify
         self.calls = []
@@ -36,6 +45,10 @@ class Fake:
             out = "remembered #50 (salience 0.5, surprise 0.2)"
         elif argv[:3] == ["scry", "memory", "verify"]:
             out, code = self.verify
+        elif argv[:3] == ["scry", "memory", "stale"]:
+            out = self.stale
+        elif argv[:3] == ["scry", "memory", "reaffirm"]:
+            out, code = f"reaffirmed #{argv[3]}", self.reaffirm_code
         elif argv[:2] == ["scry", "recall"]:
             out = "[decision #9] (0.70) use rrf"
         return SimpleNamespace(returncode=code, stdout=out, stderr="")
@@ -106,7 +119,7 @@ def memory_episode():
     return lesson(kind="episode", anchors=[])
 
 
-class CaptureTests(unittest.TestCase):
+class CaptureCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -126,6 +139,9 @@ class CaptureTests(unittest.TestCase):
         with mock.patch("subprocess.run", fake):
             return scry_capture.capture(self.payload)
 
+
+
+class CaptureTests(CaptureCase):
     def test_repo_relative_converts_and_drops_outside_paths(self):
         paths = [str(self.root / "src/lib.rs"), "/elsewhere/x.rs"]
         self.assertEqual(
@@ -288,6 +304,95 @@ class CaptureTests(unittest.TestCase):
         fake = Fake({})
         self.assertEqual(self.run_capture(fake)["skipped"], "few tool calls")
         self.assertFalse((self.root / "state" / "s1.json").exists())
+
+
+STALE_LINE = "[fact #31] (stale) src/lib.rs cc must be on PATH\n"
+
+
+def reaffirm_output(**extra):
+    claim = {"id": 31, "evidence": {"entry": 5, "quote": QUOTE}, **extra}
+    return {"memories": [], "reinforce": [], "contradict": [], "reaffirm": [claim]}
+
+
+class ReaffirmTests(CaptureCase):
+    def test_stale_lookup_uses_edited_repo_paths_and_fills_its_own_block(self):
+        fake = Fake(reaffirm_output(), stale=STALE_LINE)
+        self.run_capture(fake)
+        self.assertEqual(
+            fake.scry("scry", "memory", "stale"),
+            [["scry", "memory", "stale", "--file", "src/lib.rs"]],
+        )
+        ((_, kwargs),) = [c for c in fake.calls if c[0][0] == "claude"]
+        block = kwargs["input"].split("Stale memories anchored")[1]
+        self.assertIn("[fact #31] cc must be on PATH", block.split("Transcript:")[0])
+
+    def test_no_stale_lookup_when_nothing_was_edited(self):
+        reads = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": str(i), "name": "Read", "input": {}}
+                    for i in range(3)
+                ]
+            },
+        }
+        Path(self.payload["transcript_path"]).write_text(json.dumps(reads) + "\n")
+        fake = Fake(reaffirm_output(), stale=STALE_LINE)
+        self.run_capture(fake)
+        self.assertEqual(fake.scry("scry", "memory", "stale"), [])
+
+    def test_proven_reaffirm_is_verified_then_applied_with_citation(self):
+        fake = Fake(reaffirm_output(), stale=STALE_LINE, verify=("supported 0.9", 0))
+        result = self.run_capture(fake)
+        self.assertEqual(result["reaffirmed"], [31])
+        (verify,) = fake.scry("scry", "memory", "verify")
+        self.assertEqual(verify[3], "cc must be on PATH")
+        self.assertIn(f"error: {QUOTE}", verify[5])
+        self.assertEqual(
+            fake.scry("scry", "memory", "reaffirm"),
+            [["scry", "memory", "reaffirm", "31", "--evidence", f"[#5] {QUOTE}"]],
+        )
+
+    def test_not_configured_verifier_still_reaffirms(self):
+        fake = Fake(reaffirm_output(), stale=STALE_LINE)
+        self.assertEqual(self.run_capture(fake)["reaffirmed"], [31])
+
+    def test_unsupported_reaffirm_is_dropped(self):
+        fake = Fake(
+            reaffirm_output(), stale=STALE_LINE, verify=("unsupported 0.1", 0)
+        )
+        result = self.run_capture(fake)
+        self.assertEqual((result["reaffirmed"], result["reaffirm_failed"]), ([], []))
+        self.assertEqual(fake.scry("scry", "memory", "reaffirm"), [])
+
+    def test_id_not_in_stale_block_is_ignored(self):
+        fake = Fake(reaffirm_output(), stale="")
+        self.assertEqual(self.run_capture(fake)["reaffirmed"], [])
+        self.assertEqual(fake.scry("scry", "memory", "reaffirm"), [])
+
+    def test_unproven_citation_is_ignored(self):
+        bad = reaffirm_output(evidence={"entry": 1, "quote": "why does the build fail?"})
+        fake = Fake(bad, stale=STALE_LINE)
+        self.assertEqual(self.run_capture(fake)["reaffirmed"], [])
+
+    def test_reaffirm_exit_failure_is_logged(self):
+        fake = Fake(reaffirm_output(), stale=STALE_LINE, reaffirm_code=1)
+        result = self.run_capture(fake)
+        self.assertEqual((result["reaffirmed"], result["reaffirm_failed"]), ([], [31]))
+
+    def test_stale_memory_can_still_be_superseded(self):
+        out = {
+            "memories": [lesson(supersedes=31)],
+            "reinforce": [],
+            "contradict": [],
+            "reaffirm": [],
+        }
+        fake = Fake(out, stale=STALE_LINE)
+        self.run_capture(fake)
+        self.assertEqual(
+            fake.scry("scry", "memory", "supersede"),
+            [["scry", "memory", "supersede", "31", "50"]],
+        )
 
 
 class EntryTests(unittest.TestCase):

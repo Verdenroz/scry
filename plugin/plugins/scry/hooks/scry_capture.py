@@ -117,6 +117,20 @@ def verify_memories(memories, cwd: str):
     return out, record
 
 
+def reaffirm_memories(claims, cwd: str) -> dict:
+    done, failed = [], []
+    for claim in claims:
+        try:
+            verdict, _ = capture_scry.verify(claim["content"], claim["source"], cwd)
+            if verdict == "unsupported":
+                continue
+            ok = capture_scry.reaffirm(claim["id"], claim["evidence"], cwd)
+        except Exception:
+            ok = False
+        (done if ok else failed).append(claim["id"])
+    return {"reaffirmed": done, "reaffirm_failed": failed}
+
+
 def unmarked(ids, done) -> list:
     return [i for i in dict.fromkeys(ids) if i not in done]
 
@@ -142,14 +156,16 @@ def capture_range(payload: dict) -> dict:
     existing.update(capture_scry.recall(capture_transcript.first_prompt(entries), cwd))
     text, kept = capture_transcript.render(entries)
     edited = repo_relative(capture_transcript.edited_paths(entries), cwd)
+    stale = capture_scry.stale(sorted(edited), cwd) if edited else {}
     output = capture_model.call(
-        capture_model.build_prompt(text, existing), str(STATE_DIR)
+        capture_model.build_prompt(text, existing, stale), str(STATE_DIR)
     )
-    plan = capture_verify.plan(output, kept, edited, set(existing))
+    plan = capture_verify.plan(output, kept, edited, set(existing) | set(stale), stale)
     plan["memories"], verdicts = verify_memories(plan["memories"], cwd)
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
     written = write_plan(plan, cwd)
+    reaffirmed = reaffirm_memories(plan["reaffirm"], cwd)
     save_state(
         state_file,
         {
@@ -166,6 +182,7 @@ def capture_range(payload: dict) -> dict:
         "helpful": len(plan["helpful"]),
         "noise": len(plan["noise"]),
         **verdicts,
+        **reaffirmed,
     }
 
 

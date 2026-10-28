@@ -60,7 +60,20 @@ def proven_ids(claims, kept, kinds, shown) -> list:
     ]
 
 
-def plan(output, kept, edited, shown):
+def reaffirmable(claims, kept, stale) -> list:
+    return [
+        {
+            "id": c["id"],
+            "content": stale[c["id"]][1],
+            "evidence": cite(c["evidence"]),
+            "source": kept[c["evidence"]["entry"]].body,
+        }
+        for c in claims or []
+        if c["id"] in stale and holds(c.get("evidence"), kept, REINFORCE_KINDS)
+    ]
+
+
+def plan(output, kept, edited, shown, stale=()):
     memories = [settle(m, kept, edited) for m in output.get("memories") or []]
     return {
         "memories": [
@@ -69,4 +82,5 @@ def plan(output, kept, edited, shown):
         ],
         "helpful": proven_ids(output.get("reinforce"), kept, REINFORCE_KINDS, shown),
         "noise": proven_ids(output.get("contradict"), kept, CONTRADICT_KINDS, shown),
+        "reaffirm": reaffirmable(output.get("reaffirm"), kept, stale),
     }

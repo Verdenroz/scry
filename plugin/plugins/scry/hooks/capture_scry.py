@@ -4,6 +4,7 @@ import subprocess
 import capture_transcript
 
 REMEMBERED = re.compile(r"remembered #(\d+)")
+STALE = re.compile(r"^\[(\w+) #(\d+)\] \(stale\) \S+ (.*)$", re.MULTILINE)
 
 
 def run(args, cwd, timeout=60):
@@ -29,6 +30,22 @@ def remember(memory, cwd):
         result = run(["remember", *args, "--", memory["content"]], cwd)
     found = REMEMBERED.search(result.stdout)
     return int(found.group(1)) if result.returncode == 0 and found else None
+
+
+def stale(files, cwd: str) -> dict:
+    args = ["memory", "stale"] + [x for f in files for x in ("--file", f)]
+    result = run(args, cwd)
+    if result.returncode != 0:
+        return {}
+    return {
+        int(ident): (kind, content)
+        for kind, ident, content in STALE.findall(result.stdout)
+    }
+
+
+def reaffirm(ident: int, evidence: str, cwd: str) -> bool:
+    result = run(["memory", "reaffirm", str(ident), "--evidence", evidence], cwd)
+    return result.returncode == 0
 
 
 def index(cwd: str) -> None:
