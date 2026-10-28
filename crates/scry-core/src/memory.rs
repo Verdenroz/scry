@@ -225,10 +225,12 @@ pub struct Brief {
 /// Query-less digest of a scope: best live memories by recall score with
 /// similarity fixed at 1.0, plus memories that went stale within
 /// `stale_days`. Read-only, so briefing never refreshes recency. In a
-/// scoped brief at most [`BRIEF_GLOBAL_MAX`] globals make the list.
+/// scoped brief (a scope key was given, even one with no rows yet) at most
+/// [`BRIEF_GLOBAL_MAX`] globals make the list.
 pub fn brief(
     store: &Store,
     repo_id: Option<i64>,
+    scoped: bool,
     limit: usize,
     stale_days: u32,
     half_life_days: f64,
@@ -248,7 +250,7 @@ pub fn brief(
         .into_iter()
         .filter(|(_, global)| {
             globals += usize::from(*global);
-            repo_id.is_none() || !*global || globals <= BRIEF_GLOBAL_MAX
+            !scoped || !*global || globals <= BRIEF_GLOBAL_MAX
         })
         .map(|(hit, _)| hit)
         .take(limit)

@@ -174,14 +174,17 @@ async fn brief_ranks_scope_and_globals_without_touching_access() {
         ids.push(remember(&mut store, &embedder, d).await.unwrap().0);
     }
 
-    let digest = brief(&store, Some(repo_id), 8, 7, 29.0).unwrap();
+    let digest = brief(&store, Some(repo_id), true, 8, 7, 29.0).unwrap();
     let got: Vec<i64> = digest.top.iter().map(|h| h.id).collect();
     assert_eq!(got.len(), 3);
     assert!(!got.contains(&ids[2]));
     assert_eq!(got[0], ids[0]);
     assert!(digest.went_stale.is_empty());
     assert_eq!(
-        brief(&store, Some(repo_id), 1, 7, 29.0).unwrap().top.len(),
+        brief(&store, Some(repo_id), true, 1, 7, 29.0)
+            .unwrap()
+            .top
+            .len(),
         1
     );
 
@@ -224,12 +227,12 @@ async fn brief_lists_recently_stale_and_rejects_unknown_source() {
     .await
     .unwrap();
 
-    let digest = brief(&store, Some(repo_id), 8, 7, 29.0).unwrap();
+    let digest = brief(&store, Some(repo_id), true, 8, 7, 29.0).unwrap();
     assert!(digest.top.is_empty());
     assert_eq!(digest.went_stale.len(), 1);
     assert_eq!(digest.went_stale[0].id, id);
     assert!(
-        brief(&store, Some(repo_id), 8, 0, 29.0)
+        brief(&store, Some(repo_id), true, 8, 0, 29.0)
             .unwrap()
             .went_stale
             .len()
@@ -292,13 +295,28 @@ async fn scoped_brief_caps_globals() {
         remember(&mut store, &embedder, d).await.unwrap();
     }
 
-    let scoped = brief(&store, Some(repo_id), 4, 7, 29.0).unwrap();
+    let scoped = brief(&store, Some(repo_id), true, 4, 7, 29.0).unwrap();
     let globals = scoped
         .top
         .iter()
         .filter(|h| global_ids.contains(&h.id))
         .count();
     assert_eq!((scoped.top.len(), globals), (4, 2));
-    let unscoped = brief(&store, None, 4, 7, 29.0).unwrap();
+    let unscoped = brief(&store, None, false, 4, 7, 29.0).unwrap();
     assert_eq!(unscoped.top.len(), 3);
+}
+
+#[tokio::test]
+async fn brief_for_a_scope_without_rows_still_caps_globals() {
+    let mut store = Store::open_in_memory("hash-test", 256).unwrap();
+    let embedder = HashEmbedder { dim: 256 };
+    for i in 0..3 {
+        let d = MemoryDraft {
+            repo_id: None,
+            ..draft(0, &format!("global lesson {i}"), None, None)
+        };
+        remember(&mut store, &embedder, d).await.unwrap();
+    }
+    assert_eq!(brief(&store, None, true, 8, 7, 29.0).unwrap().top.len(), 2);
+    assert_eq!(brief(&store, None, false, 8, 7, 29.0).unwrap().top.len(), 3);
 }

@@ -129,7 +129,15 @@ pub async fn brief(
                 Some(key) => store.repo_id(key)?,
                 None => None,
             };
-            build_brief(store, repo_id, request.limit, request.stale_days, half_life)
+            let scoped = request.repo_key.is_some();
+            build_brief(
+                store,
+                repo_id,
+                scoped,
+                request.limit,
+                request.stale_days,
+                half_life,
+            )
         })
         .await?;
     Ok(Json(BriefResponse {
