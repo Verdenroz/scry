@@ -290,3 +290,36 @@ replaces, but only a `lesson`, `fact`, `decision`, or `convention` that
 kept its kind through the proof check can retire it. At `SessionStart` the
 plugin injects `scry memory brief`, so the next session starts from these
 memories and marks them in turn.
+
+### Reaffirming stale memories
+
+When the session edited files in a repo, the worker runs
+`scry memory stale --file <path>` for those repo-relative paths and shows
+the results to the model in a separate block, "stale memories anchored to
+files this session edited". The model may return `reaffirm` claims for
+those ids, each with a tool-result quote that shows the memory still
+holds after the edit. A claim is applied only if the id was in that block,
+the quote passes the same proof check as a `lesson` or `fact`, and
+`scry memory verify` does not judge it `unsupported` (or verification is
+not configured). It then runs `scry memory reaffirm <id> --evidence`
+with the cited quote. The pass log lists `reaffirmed` and `reaffirm_failed`
+ids. Replacing a stale memory with a new one through `supersedes` works
+as before.
+
+### Web content
+
+Tool results from `WebFetch`, `WebSearch`, any tool whose name contains
+`web` or `fetch`, and Bash commands running `scry --web`, `curl`, or
+`wget` are rendered as `[web content omitted]`, so the model never reads
+them and they never count as proof. The calls stay visible. A `curl` or
+`wget` aimed only at loopback addresses (`localhost`, `127.0.0.1`,
+`[::1]`, `0.0.0.0`) is a local service check and renders normally.
+
+### Daily gc
+
+At `SessionStart`, when the server is reachable and
+`~/.cache/scry/gc-stamp` is missing or older than 24 hours, the plugin
+spawns `scry memory gc` detached, with output going to the watch log
+(`SCRY_WATCH_LOG`), and touches the stamp. It never blocks the hook. The
+gc rules and their config are described in the lifecycle section of this
+page.
