@@ -320,14 +320,10 @@ mod tests {
                      DROP TABLE chunk_vectors;
                      DROP TRIGGER chunks_count_ai; DROP TRIGGER chunks_count_ad;
                      ALTER TABLE repos DROP COLUMN chunk_count;
-                     DROP TABLE memories;
-                     CREATE TABLE memories (
-                         id INTEGER PRIMARY KEY,
-                         repo_id INTEGER REFERENCES repos(id),
-                         kind TEXT NOT NULL,
-                         content TEXT NOT NULL,
-                         status TEXT NOT NULL DEFAULT 'live',
-                         superseded_by INTEGER REFERENCES memories(id));
+                     ALTER TABLE memories DROP COLUMN source;
+                     ALTER TABLE memories DROP COLUMN evidence;
+                     ALTER TABLE memories DROP COLUMN stale_at;
+                     ALTER TABLE memories DROP COLUMN noise_count;
                      INSERT INTO memories (kind, content) VALUES ('lesson', 'old');
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
                 )
