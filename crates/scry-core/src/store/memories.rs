@@ -49,6 +49,12 @@ pub struct SourceStats {
     pub noise: i64,
 }
 
+/// Vector partition for a scope; globals share partition 0 because repo
+/// ids start at 1.
+pub(super) fn scope_partition(repo_id: Option<i64>) -> i64 {
+    repo_id.unwrap_or(0)
+}
+
 const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at";
 
 fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
@@ -87,8 +93,12 @@ impl Store {
         )?;
         let memory_id = tx.last_insert_rowid();
         tx.execute(
-            "INSERT INTO vec_memories (memory_id, embedding) VALUES (?1, ?2)",
-            params![memory_id, vector_bytes(&memory.embedding)],
+            "INSERT INTO vec_memories (memory_id, repo_id, embedding) VALUES (?1, ?2, ?3)",
+            params![
+                memory_id,
+                scope_partition(memory.repo_id),
+                vector_bytes(&memory.embedding)
+            ],
         )?;
         for anchor in anchors {
             tx.execute(
@@ -109,32 +119,28 @@ impl Store {
     }
 
     /// Nearest live/stale memories for a repo (plus repo-less globals),
-    /// excluding superseded and archived rows.
+    /// excluding superseded and archived rows. Each scope is its own
+    /// partitioned KNN so a large neighbor scope cannot crowd the result.
     pub fn memory_candidates(
         &self,
         repo_id: Option<i64>,
         query: &[f32],
         k: usize,
     ) -> Result<Vec<(MemoryRow, f64)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT memory_id, distance FROM vec_memories
-             WHERE embedding MATCH ?1 AND k = ?2",
-        )?;
-        let near: Vec<(i64, f64)> = stmt
-            .query_map(params![vector_bytes(query), k as i64], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
-            .collect::<std::result::Result<_, _>>()?;
+        let mut near = self.memory_neighbors(scope_partition(repo_id), query, k)?;
+        if repo_id.is_some() {
+            near.extend(self.memory_neighbors(0, query, k)?);
+        }
+        near.sort_by(|a, b| a.1.total_cmp(&b.1));
 
         let mut fetch = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM memories
-             WHERE id = ?1 AND status != 'archived' AND superseded_by IS NULL
-               AND (repo_id IS NULL OR repo_id = ?2)"
+             WHERE id = ?1 AND status != 'archived' AND superseded_by IS NULL"
         ))?;
         let mut rows = Vec::new();
         for (memory_id, distance) in near {
             let row = fetch
-                .query_row(params![memory_id, repo_id], memory_row)
+                .query_row(params![memory_id], memory_row)
                 .map(Some)
                 .or_else(|e| match e {
                     rusqlite::Error::QueryReturnedNoRows => Ok(None),
@@ -145,6 +151,19 @@ impl Store {
             }
         }
         Ok(rows)
+    }
+
+    fn memory_neighbors(&self, partition: i64, query: &[f32], k: usize) -> Result<Vec<(i64, f64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT memory_id, distance FROM vec_memories
+             WHERE embedding MATCH ?1 AND k = ?2 AND repo_id = ?3",
+        )?;
+        let near = stmt
+            .query_map(params![vector_bytes(query), k as i64, partition], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(near)
     }
 
     /// Highest cosine similarity to any existing memory; the complement is
@@ -176,21 +195,67 @@ impl Store {
         Ok(())
     }
 
-    pub fn memory_feedback(&self, id: i64, helpful: bool) -> Result<bool> {
+    /// Helpful votes lift the scope's suppression and stamp `helpful_at`;
+    /// noise votes also suppress the memory in `scope` (`None` is the
+    /// unscoped context).
+    pub fn memory_feedback(&self, id: i64, helpful: bool, scope: Option<i64>) -> Result<bool> {
+        let partition = scope_partition(scope);
         let changed = if helpful {
-            self.conn.execute(
+            let changed = self.conn.execute(
                 "UPDATE memories SET helpful_count = helpful_count + 1,
-                 last_access = unixepoch() WHERE id = ?1",
+                 last_access = unixepoch(), helpful_at = unixepoch() WHERE id = ?1",
                 [id],
-            )?
-        } else {
+            )?;
             self.conn.execute(
+                "DELETE FROM memory_suppressions WHERE memory_id = ?1 AND repo_id = ?2",
+                params![id, partition],
+            )?;
+            changed
+        } else {
+            let changed = self.conn.execute(
                 "UPDATE memories SET salience = salience * 0.8, noise_count = noise_count + 1
                  WHERE id = ?1",
                 [id],
-            )?
+            )?;
+            if changed > 0 {
+                self.conn.execute(
+                    "INSERT INTO memory_suppressions (memory_id, repo_id) VALUES (?1, ?2)
+                     ON CONFLICT (memory_id, repo_id) DO UPDATE SET created_at = unixepoch()",
+                    params![id, partition],
+                )?;
+            }
+            changed
         };
         Ok(changed > 0)
+    }
+
+    /// Moves the vectors of a repo's memories to `target`'s partition, or
+    /// to the global partition when `target` is `None`.
+    pub(super) fn repartition_memory_vectors(
+        &self,
+        repo_id: i64,
+        target: Option<i64>,
+    ) -> Result<()> {
+        let mut ids = self
+            .conn
+            .prepare("SELECT id FROM memories WHERE repo_id = ?1 AND status != 'archived'")?;
+        let ids: Vec<i64> = ids
+            .query_map([repo_id], |row| row.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        for id in ids {
+            let embedding: Vec<u8> = self.conn.query_row(
+                "SELECT embedding FROM vec_memories WHERE memory_id = ?1",
+                [id],
+                |row| row.get(0),
+            )?;
+            self.conn
+                .execute("DELETE FROM vec_memories WHERE memory_id = ?1", [id])?;
+            self.conn.execute(
+                "INSERT INTO vec_memories (memory_id, repo_id, embedding) VALUES (?1, ?2, ?3)",
+                params![id, scope_partition(target), embedding],
+            )?;
+        }
+        Ok(())
     }
 
     /// Anchored memories go stale the moment their anchored file's content
@@ -373,14 +438,59 @@ mod tests {
     }
 
     #[test]
+    fn candidates_search_each_scope_so_a_large_neighbor_cannot_crowd() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let a = store.upsert_repo("github.com/x/a").unwrap();
+        let b = store.upsert_repo("github.com/x/b").unwrap();
+        for i in 0..6 {
+            store
+                .add_memory(&memory(Some(b), "agent", 0.01 * i as f32), &[])
+                .unwrap();
+        }
+        let mine = store
+            .add_memory(&memory(Some(a), "agent", 0.9), &[])
+            .unwrap();
+        let global = store.add_memory(&memory(None, "agent", 0.8), &[]).unwrap();
+
+        let found = store
+            .memory_candidates(Some(a), &[0.0, 1.0, 0.0, 0.0], 2)
+            .unwrap();
+        let ids: Vec<i64> = found.iter().map(|(row, _)| row.id).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&mine) && ids.contains(&global));
+        assert!(found.windows(2).all(|w| w[0].1 <= w[1].1));
+    }
+
+    #[test]
+    fn pruning_a_repo_moves_its_memory_vectors() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let a = store.upsert_repo("github.com/x/a").unwrap();
+        let b = store.upsert_repo("github.com/x/b").unwrap();
+        let id = store
+            .add_memory(&memory(Some(a), "agent", 0.1), &[])
+            .unwrap();
+        let query = [0.1, 1.0, 0.0, 0.0];
+        store.prune_repo("github.com/x/a", Some(b)).unwrap();
+        assert_eq!(
+            store.memory_candidates(Some(b), &query, 5).unwrap()[0].0.id,
+            id
+        );
+        store.prune_repo("github.com/x/b", None).unwrap();
+        assert_eq!(
+            store.memory_candidates(None, &query, 5).unwrap()[0].0.id,
+            id
+        );
+    }
+
+    #[test]
     fn noise_feedback_counts_and_supersede_validates_ids() {
         let mut store = Store::open_in_memory("m", 4).unwrap();
         let old = store
             .add_memory(&memory(None, "capture", 0.1), &[])
             .unwrap();
         let new = store.add_memory(&memory(None, "agent", 0.2), &[]).unwrap();
-        store.memory_feedback(old, false).unwrap();
-        store.memory_feedback(old, true).unwrap();
+        store.memory_feedback(old, false, None).unwrap();
+        store.memory_feedback(old, true, None).unwrap();
 
         assert!(!store.supersede_memory(old, 999).unwrap());
         assert_eq!(store.live_memories(None).unwrap().len(), 2);
@@ -413,8 +523,8 @@ mod tests {
             .unwrap();
         store.add_memory(&memory(None, "agent", 0.3), &[]).unwrap();
         store.touch_memories(&[a, a]).unwrap();
-        store.memory_feedback(a, true).unwrap();
-        store.memory_feedback(a, false).unwrap();
+        store.memory_feedback(a, true, None).unwrap();
+        store.memory_feedback(a, false, None).unwrap();
 
         let stats = store.memory_source_stats().unwrap();
         let capture = stats.iter().find(|s| s.source == "capture").unwrap();

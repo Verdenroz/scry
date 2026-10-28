@@ -100,7 +100,7 @@ async fn remember_recall_staleness_and_feedback() {
     assert!(hits[0].stale);
     assert!(hits[0].score < live_score);
 
-    assert!(store.memory_feedback(id, true).unwrap());
+    assert!(store.memory_feedback(id, true, Some(repo_id)).unwrap());
     let hits = recall_with_vector(&store, Some(repo_id), &query_vec, 5, 29.0, true).unwrap();
     assert!(hits[0].score > 0.0);
 

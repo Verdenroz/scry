@@ -69,8 +69,17 @@ impl Store {
         for relpath in &relpaths {
             self.delete_file(repo_id, relpath)?;
         }
+        self.repartition_memory_vectors(repo_id, migrate_to)?;
         match migrate_to {
             Some(target) => {
+                self.conn.execute(
+                    "UPDATE OR IGNORE memory_suppressions SET repo_id = ?2 WHERE repo_id = ?1",
+                    rusqlite::params![repo_id, target],
+                )?;
+                self.conn.execute(
+                    "DELETE FROM memory_suppressions WHERE repo_id = ?1",
+                    [repo_id],
+                )?;
                 self.conn.execute(
                     "UPDATE memory_anchors SET repo_id = ?2 WHERE repo_id = ?1",
                     rusqlite::params![repo_id, target],
@@ -81,6 +90,10 @@ impl Store {
                 )?;
             }
             None => {
+                self.conn.execute(
+                    "DELETE FROM memory_suppressions WHERE repo_id = ?1",
+                    [repo_id],
+                )?;
                 self.conn
                     .execute("DELETE FROM memory_anchors WHERE repo_id = ?1", [repo_id])?;
                 self.conn.execute(

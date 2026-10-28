@@ -112,7 +112,7 @@ pub async fn feedback(
 ) -> Result<Json<FeedbackResponse>, ApiError> {
     let updated = state
         .store
-        .call(move |store| store.memory_feedback(request.id, request.helpful))
+        .call(move |store| store.memory_feedback(request.id, request.helpful, None))
         .await?;
     Ok(Json(FeedbackResponse { updated }))
 }
