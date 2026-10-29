@@ -185,8 +185,6 @@ pub(crate) fn now_epoch() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-/// In a scoped recall (a scope key was given, even one with no rows yet) at
-/// most [`BRIEF_GLOBAL_MAX`] globals make the list.
 pub fn recall_with_vector(
     store: &Store,
     scope: Scope,
@@ -196,23 +194,22 @@ pub fn recall_with_vector(
     touch: bool,
 ) -> Result<Vec<MemoryHit>> {
     let now = now_epoch();
-    let mut ranked: Vec<(MemoryHit, bool)> = store
+    let mut hits: Vec<MemoryHit> = store
         .memory_candidates(scope, vector, CANDIDATES)?
         .into_iter()
         .map(|(row, distance)| {
             let similarity = (1.0 - distance).clamp(0.0, 1.0);
-            let hit = MemoryHit {
-                id: row.id,
-                kind: row.kind.clone(),
-                content: row.content.clone(),
+            MemoryHit {
                 score: recall_score(similarity, &row, now, half_life_days),
                 stale: row.status == "stale",
-            };
-            (hit, row.repo_id.is_none())
+                id: row.id,
+                kind: row.kind,
+                content: row.content,
+            }
         })
         .collect();
-    ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
-    let hits = cap_globals(ranked, scope.is_scoped(), limit.max(1));
+    hits.sort_by(|a, b| b.score.total_cmp(&a.score));
+    hits.truncate(limit.max(1));
     if touch {
         store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
     }

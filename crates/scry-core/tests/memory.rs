@@ -331,7 +331,7 @@ async fn brief_for_a_scope_without_rows_still_caps_globals() {
 }
 
 #[tokio::test]
-async fn scoped_recall_caps_globals_and_honors_noise() {
+async fn recall_keeps_all_globals_and_honors_noise() {
     let mut store = Store::open_in_memory("hash-test", 256).unwrap();
     let embedder = HashEmbedder { dim: 256 };
     let repo_id = store.upsert_repo(REPO_KEY).unwrap();
@@ -357,24 +357,17 @@ async fn scoped_recall_caps_globals_and_honors_noise() {
         .pop()
         .unwrap();
 
-    let recall = |scoped: bool| {
-        let scope = if scoped {
-            Scope::Repo(repo_id)
-        } else {
-            Scope::Unscoped
-        };
-        recall_with_vector(&store, scope, &query_vec, 10, 29.0, false).unwrap()
-    };
+    let recall =
+        || recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 10, 29.0, false).unwrap();
     let count_globals = |hits: &[scry_core::memory::MemoryHit]| {
         hits.iter().filter(|h| globals.contains(&h.id)).count()
     };
-    assert_eq!(count_globals(&recall(true)), 2);
-    assert_eq!(count_globals(&recall(false)), 4);
+    assert_eq!(count_globals(&recall()), 4);
 
     for id in &globals[..2] {
         store.memory_feedback(*id, false, Some(repo_id)).unwrap();
     }
-    let hits = recall(true);
+    let hits = recall();
     assert_eq!(count_globals(&hits), 2);
     assert!(hits.iter().all(|h| !globals[..2].contains(&h.id)));
 }
