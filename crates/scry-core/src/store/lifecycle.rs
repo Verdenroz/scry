@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::{OptionalExtension, ToSql, params};
 
-use super::memories::{ANCHOR_DRIFTED, ROW_COLUMNS, memory_row, scope_partition};
+use super::memories::{ANCHOR_DRIFTED, NOISE_DECAY, ROW_COLUMNS, memory_row, scope_partition};
 use super::{MemoryRow, Store, vector_bytes};
 use crate::{Error, Result};
 
@@ -207,7 +207,7 @@ impl Store {
                  salience = min(1.0, salience / ?3),
                  stale_at = CASE WHEN ?2 = 'stale' THEN unixepoch() END
              WHERE id = ?1",
-            params![id, restored, 0.8f64.powi(noise_count)],
+            params![id, restored, NOISE_DECAY.powi(noise_count)],
         )?;
         tx.execute("DELETE FROM memory_suppressions WHERE memory_id = ?1", [id])?;
         tx.commit()?;

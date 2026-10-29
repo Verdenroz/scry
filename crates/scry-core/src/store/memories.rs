@@ -81,15 +81,25 @@ impl Scope {
     pub fn is_scoped(self) -> bool {
         self != Scope::Unscoped
     }
+
+    /// The partition whose suppression votes apply, if any.
+    fn suppression_partition(self) -> Option<i64> {
+        match self {
+            Scope::Unscoped => Some(0),
+            Scope::Repo(id) => Some(id),
+            Scope::Unseen => None,
+        }
+    }
 }
+
+/// Salience factor of one noise vote; restoring a memory undoes it.
+pub(super) const NOISE_DECAY: f64 = 0.8;
 
 /// Excludes memories marked noise in the asking scope.
 fn not_suppressed(scope: Scope) -> String {
-    match scope {
-        Scope::Unscoped => suppressed_in(0),
-        Scope::Repo(id) => suppressed_in(id),
-        Scope::Unseen => "TRUE".to_string(),
-    }
+    scope
+        .suppression_partition()
+        .map_or_else(|| "TRUE".to_string(), suppressed_in)
 }
 
 fn suppressed_in(partition: i64) -> String {
@@ -171,7 +181,8 @@ impl Store {
 
     /// Nearest live/stale memories for a repo (plus repo-less globals),
     /// excluding superseded, archived, and suppressed rows. Each scope is its own
-    /// partitioned KNN so a large neighbor scope cannot crowd the result.
+    /// partitioned KNN so a large neighbor scope cannot crowd the result; the
+    /// merged list is cut to the `k` nearest before filtering.
     pub fn memory_candidates(
         &self,
         scope: Scope,
@@ -184,6 +195,7 @@ impl Store {
             near.extend(self.memory_neighbors(0, query, k)?);
         }
         near.sort_by(|a, b| a.1.total_cmp(&b.1));
+        near.truncate(k);
 
         let mut fetch = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM memories
@@ -253,11 +265,7 @@ impl Store {
     /// in `scope`; a noise vote suppresses it there. An unseen scope has no
     /// suppressions to lift, and noise never arrives from one.
     pub fn memory_feedback(&self, id: i64, helpful: bool, scope: Scope) -> Result<bool> {
-        let partition = match scope {
-            Scope::Unscoped => Some(0),
-            Scope::Repo(repo_id) => Some(repo_id),
-            Scope::Unseen => None,
-        };
+        let partition = scope.suppression_partition();
         let tx = self.conn.unchecked_transaction()?;
         let changed = if helpful {
             let changed = tx.execute(
@@ -274,9 +282,9 @@ impl Store {
             changed
         } else {
             let changed = tx.execute(
-                "UPDATE memories SET salience = salience * 0.8, noise_count = noise_count + 1
+                "UPDATE memories SET salience = salience * ?2, noise_count = noise_count + 1
                  WHERE id = ?1",
-                [id],
+                params![id, NOISE_DECAY],
             )?;
             if let (true, Some(partition)) = (changed > 0, partition) {
                 tx.execute(
@@ -347,15 +355,18 @@ impl Store {
         if found != 2 {
             return Ok(false);
         }
-        self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "UPDATE memories SET superseded_by = ?2 WHERE id = ?1",
             params![old_id, new_id],
         )?;
-        self.conn.execute(
+        tx.execute(
             "INSERT OR IGNORE INTO memory_links (memory_id, related_id, relation)
              VALUES (?2, ?1, 'supersedes')",
             params![old_id, new_id],
         )?;
+        tx.execute("DELETE FROM vec_memories WHERE memory_id = ?1", [old_id])?;
+        tx.commit()?;
         Ok(true)
     }
 
@@ -660,6 +671,44 @@ mod tests {
         let query = [0.1, 1.0, 0.0, 0.0];
         let found = store.memory_candidates(Scope::Unscoped, &query, 5).unwrap();
         assert_eq!(found.iter().map(|(m, _)| m.id).collect::<Vec<_>>(), [kept]);
+    }
+
+    #[test]
+    fn pruning_without_a_target_detaches_a_suppressed_memory_with_helpful_votes() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let a = store.upsert_repo("github.com/x/a").unwrap();
+        let helped = store
+            .add_memory(&memory(Some(a), "agent", 0.1), &[])
+            .unwrap();
+        store.memory_feedback(helped, true, Scope::Repo(a)).unwrap();
+        store
+            .memory_feedback(helped, false, Scope::Repo(a))
+            .unwrap();
+        store.prune_repo("github.com/x/a", None).unwrap();
+
+        let row = store.memory(helped).unwrap().unwrap();
+        assert_eq!((row.status.as_str(), row.repo_id), ("live", None));
+        let query = [0.1, 1.0, 0.0, 0.0];
+        let found = store.memory_candidates(Scope::Unscoped, &query, 5).unwrap();
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn superseding_drops_the_old_vector() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let old = store.add_memory(&memory(None, "agent", 0.1), &[]).unwrap();
+        let new = store.add_memory(&memory(None, "agent", 0.2), &[]).unwrap();
+        assert!(store.supersede_memory(old, new).unwrap());
+
+        let vectors: Vec<i64> = store
+            .conn
+            .prepare("SELECT memory_id FROM vec_memories")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(vectors, [new]);
     }
 
     #[test]

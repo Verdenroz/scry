@@ -128,8 +128,9 @@ scry memory reaffirm <id> --evidence "text"
 
 `stale` lists stale, non-superseded memories in scope, one per line as
 three tab-separated fields: `[kind #id] (stale)`, the anchored paths
-joined by `,`, and the content with `\` written as `\\` and newlines as
-`\n`. Each `--file` narrows the list to memories anchored to it, and
+joined by `,`, and the content. In content and paths, `\` is written as
+`\\`, newline as `\n`, tab as `\t`, and carriage return as `\r`; a `,`
+inside a path is written `\,`, so split paths on unescaped commas. Each `--file` narrows the list to memories anchored to it, and
 nothing prints when there are none.
 `reaffirm` re-hashes the memory's anchors to the files as indexed now,
 marks it live, and appends the evidence. It fails unless the memory is

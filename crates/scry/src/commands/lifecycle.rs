@@ -46,7 +46,12 @@ pub async fn stale(args: &[String]) -> Result<()> {
             "[{} #{}] (stale)\t{}\t{}",
             memory.kind,
             memory.id,
-            memory.relpaths.join(","),
+            memory
+                .relpaths
+                .iter()
+                .map(|path| escape_field(path).replace(',', "\\,"))
+                .collect::<Vec<_>>()
+                .join(","),
             escape_field(&memory.content)
         );
     }
@@ -54,7 +59,10 @@ pub async fn stale(args: &[String]) -> Result<()> {
 }
 
 fn escape_field(text: &str) -> String {
-    text.replace('\\', "\\\\").replace('\n', "\\n")
+    text.replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
+        .replace('\r', "\\r")
 }
 
 pub async fn gc(args: &[String]) -> Result<()> {
@@ -88,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fields_escape_backslashes_before_newlines() {
-        assert_eq!(escape_field("a\\b\nc"), "a\\\\b\\nc");
+    fn fields_escape_backslashes_before_control_characters() {
+        assert_eq!(escape_field("a\\b\nc\td\re"), "a\\\\b\\nc\\td\\re");
     }
 }

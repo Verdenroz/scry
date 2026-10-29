@@ -217,10 +217,7 @@ pub async fn stale(
     let rows = state
         .store
         .call(move |store| {
-            let repo_id = match &request.repo_key {
-                Some(key) => store.repo_id(key)?,
-                None => None,
-            };
+            let repo_id = store.scope(request.repo_key.as_deref())?.repo_id();
             store.stale_memories(repo_id, &request.files)
         })
         .await?;

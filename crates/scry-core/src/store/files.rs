@@ -56,7 +56,8 @@ impl Store {
     /// Removes a repo's files, chunks, and vectors. Its memories move to
     /// `migrate_to` when given (anchors included), else detach to global
     /// scope with their anchors dropped. Without a target, memories the repo
-    /// suppressed are archived rather than resurfacing globally.
+    /// suppressed and nobody voted helpful are archived rather than
+    /// resurfacing globally.
     pub fn prune_repo(&mut self, key: &str, migrate_to: Option<i64>) -> Result<usize> {
         let Some(repo_id) = self.repo_id(key)? else {
             return Ok(0);
@@ -76,11 +77,12 @@ impl Store {
                 "DELETE FROM vec_memories WHERE memory_id IN
                  (SELECT m.id FROM memories m
                   JOIN memory_suppressions s ON s.memory_id = m.id AND s.repo_id = m.repo_id
-                  WHERE m.repo_id = ?1)",
+                  WHERE m.repo_id = ?1 AND m.helpful_count = 0)",
                 [repo_id],
             )?;
             tx.execute(
-                "UPDATE memories SET status = 'archived' WHERE repo_id = ?1 AND id IN
+                "UPDATE memories SET status = 'archived'
+                 WHERE repo_id = ?1 AND helpful_count = 0 AND id IN
                  (SELECT memory_id FROM memory_suppressions WHERE repo_id = ?1)",
                 [repo_id],
             )?;
