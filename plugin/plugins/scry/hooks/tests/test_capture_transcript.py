@@ -213,7 +213,8 @@ class ProvableTests(unittest.TestCase):
             ("LSP", {}),
             ("Bash", {"command": "cat foo"}),
             ("Bash", {"command": "cargo build"}),
-            ("Bash", {"command": "curl -s http://localhost:7399/health"}),
+            ("Bash", {"command": "cat file:///etc/hosts"}),
+            ("Bash", {"command": "git log --oneline"}),
         ):
             self.assertTrue(results_after(tool, args).provable, tool)
 
@@ -236,6 +237,20 @@ class ProvableTests(unittest.TestCase):
             "npm install left-pad",
             "uv pip install x",
             "echo https://example.com/x",
+            "curl -s http://localhost:7399/health",
+            "echo x | xargs curl",
+            "env curl https://x.dev",
+            "nohup curl -s localhost:1 &",
+            'bash -c "curl -s localhost:1"',
+            "echo $(wget -qO- localhost:1)",
+            "echo `curl localhost:1`",
+            "for u in a b; do curl $u; done",
+            "git -C d pull",
+            "python -m pip install requests",
+            "python -m pip list",
+            "pnpm add left-pad",
+            "ssh host ls",
+            'curl -s "unbalanced',
         ):
             entry = results_after("Bash", {"command": command})
             self.assertFalse(entry.provable, command)

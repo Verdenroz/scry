@@ -13,7 +13,13 @@ EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 MEMORY_CMD = re.compile(r"\bscry\s+(recall|remember|memory)\b")
 PROVABLE_TOOLS = {"Read", "Grep", "Glob", "NotebookRead", "LSP"}
 HTTP_CLIENTS = {"curl", "wget"}
-INSTALLERS = {"pip", "pip3", "npm", "cargo", "uv"}
+NETWORK_PROGRAMS = {
+    "curl", "wget", "http", "https", "httpie", "aria2c", "nc", "ncat", "socat",
+    "ssh", "scp", "rsync", "ftp", "sftp", "lynx", "w3m",
+}
+GIT_REMOTE = {"clone", "fetch", "pull", "ls-remote"}
+INSTALLERS = {"pip", "pip3", "npm", "pnpm", "yarn", "cargo", "uv"}
+WORDS = re.compile(r"[^\s;|&()<>`'\"${}]+")
 VALUE_OPTIONS = {
     "-o", "--output", "-d", "--data", "--data-raw", "--data-binary", "-H", "--header",
 }
@@ -113,21 +119,29 @@ def web_command(command: str) -> bool:
     )
 
 
-def installs_or_clones(name: str, args) -> bool:
-    return (
-        (name == "gh" and args[:1] == ["api"])
-        or name in {"http", "https"}
-        or (name == "git" and args[:1] in (["clone"], ["fetch"], ["pull"]))
-        or (name in INSTALLERS and "install" in args)
-    )
+def mentions_network(command: str) -> bool:
+    words = [w.rsplit("/", 1)[-1] for w in WORDS.findall(command)]
+    for i, word in enumerate(words):
+        later = set(words[i + 1 :])
+        if (
+            word in NETWORK_PROGRAMS
+            or (word == "scry" and {"-w", "--web"} & later)
+            or (word == "gh" and "api" in later)
+            or (word == "git" and GIT_REMOTE & later)
+            or (word in INSTALLERS and {"install", "add"} & later)
+            or (word == "pip" and words[i - 1 : i] == ["-m"])
+        ):
+            return True
+    return False
+
+
+def remote_url(url: str) -> bool:
+    host = host_of(url)
+    return host is not None and host not in LOOPBACK
 
 
 def network_command(command: str) -> bool:
-    return (
-        web_command(command)
-        or any(host_of(u) not in LOOPBACK for u in URL.findall(command))
-        or any(installs_or_clones(n, a) for n, a in commands(command))
-    )
+    return mentions_network(command) or any(remote_url(u) for u in URL.findall(command))
 
 
 def fetches_web(name: str, args: dict) -> bool:
