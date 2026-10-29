@@ -154,20 +154,30 @@ impl Store {
 
     /// Re-inserts an archived memory's vector and returns its new status:
     /// stale when it was archived stale or an anchored file has changed
-    /// since, else live. Noise votes, suppressions, and the recency clock
-    /// reset so gc does not archive it again at once.
+    /// since, else live. Noise votes (and their salience cuts), suppressions,
+    /// and the recency clock reset so gc does not archive it again at once.
     pub fn restore_memory(&mut self, id: i64, embedding: &[f32]) -> Result<String> {
         let tx = self.conn.transaction()?;
-        let (repo_id, status, stale_at, superseded): (
+        let (repo_id, status, stale_at, superseded, noise_count): (
             Option<i64>,
             String,
             Option<i64>,
             Option<i64>,
+            i32,
         ) = tx
             .query_row(
-                "SELECT repo_id, status, stale_at, superseded_by FROM memories WHERE id = ?1",
+                "SELECT repo_id, status, stale_at, superseded_by, noise_count
+                 FROM memories WHERE id = ?1",
                 [id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .optional()?
             .ok_or_else(|| Error::Config(format!("no memory #{id}")))?;
@@ -194,9 +204,10 @@ impl Store {
         )?;
         tx.execute(
             "UPDATE memories SET status = ?2, noise_count = 0, last_access = unixepoch(),
+                 salience = min(1.0, salience / ?3),
                  stale_at = CASE WHEN ?2 = 'stale' THEN unixepoch() END
              WHERE id = ?1",
-            params![id, restored],
+            params![id, restored, 0.8f64.powi(noise_count)],
         )?;
         tx.execute("DELETE FROM memory_suppressions WHERE memory_id = ?1", [id])?;
         tx.commit()?;
@@ -358,6 +369,23 @@ mod tests {
             1
         );
         assert!(store.restore_memory(id, &query).is_err());
+    }
+
+    #[test]
+    fn restore_undoes_the_noise_salience_cuts() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let repo = store.upsert_repo("github.com/x/y").unwrap();
+        let id = store.add_memory(&memory(Some(repo), 0.1), &[]).unwrap();
+        let before = store.memory(id).unwrap().unwrap().salience;
+        for _ in 0..3 {
+            store.memory_feedback(id, false, Some(repo)).unwrap();
+        }
+        assert!(store.memory(id).unwrap().unwrap().salience < before);
+        store.archive_memories(&[id]).unwrap();
+        store.restore_memory(id, &[0.1, 1.0, 0.0, 0.0]).unwrap();
+
+        let row = store.memory(id).unwrap().unwrap();
+        assert!((row.salience - before).abs() < 1e-9);
     }
 
     #[test]
