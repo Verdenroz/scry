@@ -99,6 +99,11 @@ fn suppressed_in(partition: i64) -> String {
     )
 }
 
+/// Matches an anchor `a` whose file is no longer indexed under the hash the
+/// anchor recorded. The one definition of "the anchored code changed".
+pub(super) const ANCHOR_DRIFTED: &str = "NOT EXISTS (SELECT 1 FROM files f
+     WHERE f.repo_id = a.repo_id AND f.relpath = a.relpath AND f.xxh64 = a.xxh64)";
+
 pub(super) const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at, superseded_by, helpful_at";
 
 pub(super) fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
@@ -308,15 +313,18 @@ impl Store {
     }
 
     /// Anchored memories go stale the moment their anchored file's content
-    /// hash changes; sync calls this on every committed file.
-    pub fn mark_stale_anchors(&self, repo_id: i64, relpath: &str, new_hash: &str) -> Result<usize> {
+    /// hash changes; sync calls this on every committed file, after the file
+    /// row holds the new hash.
+    pub fn mark_stale_anchors(&self, repo_id: i64, relpath: &str) -> Result<usize> {
         let changed = self.conn.execute(
-            "UPDATE memories SET status = 'stale', stale_at = unixepoch()
-             WHERE status = 'live' AND id IN (
-                 SELECT memory_id FROM memory_anchors
-                 WHERE repo_id = ?1 AND relpath = ?2 AND xxh64 != ?3
-             )",
-            params![repo_id, relpath, new_hash],
+            &format!(
+                "UPDATE memories SET status = 'stale', stale_at = unixepoch()
+                 WHERE status = 'live' AND id IN (
+                     SELECT a.memory_id FROM memory_anchors a
+                     WHERE a.repo_id = ?1 AND a.relpath = ?2 AND {ANCHOR_DRIFTED}
+                 )"
+            ),
+            params![repo_id, relpath],
         )?;
         Ok(changed)
     }
@@ -467,7 +475,7 @@ mod tests {
                 .is_empty()
         );
 
-        assert_eq!(store.mark_stale_anchors(repo, "a.rs", "new").unwrap(), 1);
+        assert_eq!(store.mark_stale_anchors(repo, "a.rs").unwrap(), 1);
         assert!(store.live_memories(Scope::Repo(repo)).unwrap().is_empty());
         let stale = store
             .recently_stale_memories(Scope::Repo(repo), 0, 5)

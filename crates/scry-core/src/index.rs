@@ -126,7 +126,7 @@ pub fn commit_file(
         meta.mtime_ms,
     )?;
     store.replace_file_chunks(file_id, repo_id, &new_chunks)?;
-    store.mark_stale_anchors(repo_id, &meta.relpath, &meta.xxh64)?;
+    store.mark_stale_anchors(repo_id, &meta.relpath)?;
     Ok(())
 }
 

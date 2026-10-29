@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, ToSql, params};
 
-use super::memories::{ROW_COLUMNS, memory_row, scope_partition};
+use super::memories::{ANCHOR_DRIFTED, ROW_COLUMNS, memory_row, scope_partition};
 use super::{MemoryRow, Store, vector_bytes};
 use crate::{Error, Result};
 
@@ -33,27 +33,34 @@ impl Store {
         repo_id: Option<i64>,
         files: &[String],
     ) -> Result<Vec<(MemoryRow, Vec<String>)>> {
+        let having = if files.is_empty() {
+            String::new()
+        } else {
+            let marks: Vec<String> = (2..files.len() + 2).map(|i| format!("?{i}")).collect();
+            format!("HAVING sum(a.relpath IN ({})) > 0", marks.join(","))
+        };
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {ROW_COLUMNS} FROM memories
+            "SELECT {ROW_COLUMNS}, group_concat(a.relpath, char(31)) FROM memories
+             LEFT JOIN (SELECT DISTINCT memory_id, relpath FROM memory_anchors) a
+                    ON a.memory_id = memories.id
              WHERE status = 'stale' AND superseded_by IS NULL
                AND (repo_id IS NULL OR repo_id = ?1)
+             GROUP BY memories.id {having}
              ORDER BY stale_at DESC, id"
         ))?;
-        let rows: Vec<MemoryRow> = stmt
-            .query_map([repo_id], memory_row)?
+        let mut args: Vec<&dyn ToSql> = vec![&repo_id];
+        args.extend(files.iter().map(|file| file as &dyn ToSql));
+        let stale = stmt
+            .query_map(args.as_slice(), |row| {
+                let joined: Option<String> = row.get(12)?;
+                let mut relpaths: Vec<String> = joined
+                    .iter()
+                    .flat_map(|joined| joined.split('\u{1f}').map(str::to_string))
+                    .collect();
+                relpaths.sort();
+                Ok((memory_row(row)?, relpaths))
+            })?
             .collect::<std::result::Result<_, _>>()?;
-        let mut paths = self.conn.prepare(
-            "SELECT DISTINCT relpath FROM memory_anchors WHERE memory_id = ?1 ORDER BY relpath",
-        )?;
-        let mut stale = Vec::new();
-        for row in rows {
-            let relpaths: Vec<String> = paths
-                .query_map([row.id], |r| r.get(0))?
-                .collect::<std::result::Result<_, _>>()?;
-            if files.is_empty() || relpaths.iter().any(|p| files.contains(p)) {
-                stale.push((row, relpaths));
-            }
-        }
         Ok(stale)
     }
 
@@ -170,9 +177,9 @@ impl Store {
             )));
         }
         let drifted: i64 = tx.query_row(
-            "SELECT count(*) FROM memory_anchors a
-             LEFT JOIN files f ON f.repo_id = a.repo_id AND f.relpath = a.relpath
-             WHERE a.memory_id = ?1 AND (f.id IS NULL OR f.xxh64 != a.xxh64)",
+            &format!(
+                "SELECT count(*) FROM memory_anchors a WHERE a.memory_id = ?1 AND {ANCHOR_DRIFTED}"
+            ),
             [id],
             |row| row.get(0),
         )?;
@@ -238,7 +245,7 @@ mod tests {
         assert!(store.reaffirm_memory(id, "still true").is_err());
 
         store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
-        store.mark_stale_anchors(repo, "a.rs", "new").unwrap();
+        store.mark_stale_anchors(repo, "a.rs").unwrap();
         store.reaffirm_memory(id, "still true").unwrap();
 
         let row = store.memory(id).unwrap().unwrap();
@@ -254,7 +261,7 @@ mod tests {
             .unwrap();
         assert_eq!(hash, "new");
         assert_eq!(evidence, "first\nstill true");
-        assert_eq!(store.mark_stale_anchors(repo, "a.rs", "new").unwrap(), 0);
+        assert_eq!(store.mark_stale_anchors(repo, "a.rs").unwrap(), 0);
     }
 
     #[test]
@@ -262,7 +269,8 @@ mod tests {
         let mut store = Store::open_in_memory("m", 4).unwrap();
         let repo = store.upsert_repo("github.com/x/y").unwrap();
         let id = anchored(&mut store, repo, "a.rs");
-        store.mark_stale_anchors(repo, "a.rs", "new").unwrap();
+        store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
+        store.mark_stale_anchors(repo, "a.rs").unwrap();
         store.delete_file(repo, "a.rs").unwrap();
         let err = store.reaffirm_memory(id, "e").unwrap_err();
         assert!(err.to_string().contains("not in the index"));
@@ -280,8 +288,10 @@ mod tests {
         let repo = store.upsert_repo("github.com/x/y").unwrap();
         anchored(&mut store, repo, "a.rs");
         let b = anchored(&mut store, repo, "b.rs");
-        store.mark_stale_anchors(repo, "a.rs", "new").unwrap();
-        store.mark_stale_anchors(repo, "b.rs", "new").unwrap();
+        store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
+        store.mark_stale_anchors(repo, "a.rs").unwrap();
+        store.upsert_file(repo, "b.rs", "new", 1, 0).unwrap();
+        store.mark_stale_anchors(repo, "b.rs").unwrap();
 
         assert_eq!(store.stale_memories(Some(repo), &[]).unwrap().len(), 2);
         let only_b = store
@@ -293,6 +303,33 @@ mod tests {
             (b, vec!["b.rs".to_string()])
         );
         assert!(store.stale_memories(None, &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn stale_list_keeps_every_anchored_path_when_filtering() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let repo = store.upsert_repo("github.com/x/y").unwrap();
+        store.upsert_file(repo, "a.rs", "old", 1, 0).unwrap();
+        store.upsert_file(repo, "b.rs", "old", 1, 0).unwrap();
+        let anchors: Vec<MemoryAnchor> = ["b.rs", "a.rs", "a.rs"]
+            .iter()
+            .map(|relpath| MemoryAnchor {
+                relpath: relpath.to_string(),
+                start_line: None,
+                end_line: None,
+                xxh64: "old".to_string(),
+            })
+            .collect();
+        store
+            .add_memory(&memory(Some(repo), 0.1), &anchors)
+            .unwrap();
+        store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
+        store.mark_stale_anchors(repo, "a.rs").unwrap();
+
+        let found = store
+            .stale_memories(Some(repo), &["a.rs".to_string()])
+            .unwrap();
+        assert_eq!(found[0].1, vec!["a.rs".to_string(), "b.rs".to_string()]);
     }
 
     #[test]
@@ -329,7 +366,8 @@ mod tests {
         let repo = store.upsert_repo("github.com/x/y").unwrap();
         let query = [0.1, 1.0, 0.0, 0.0];
         let was_stale = anchored(&mut store, repo, "a.rs");
-        store.mark_stale_anchors(repo, "a.rs", "new").unwrap();
+        store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
+        store.mark_stale_anchors(repo, "a.rs").unwrap();
         let drifted = anchored(&mut store, repo, "b.rs");
         store.archive_memories(&[was_stale, drifted]).unwrap();
         store.upsert_file(repo, "b.rs", "changed", 1, 0).unwrap();
