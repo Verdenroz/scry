@@ -262,6 +262,14 @@ transcript the model saw.
 - `lesson` and `fact` need a quote from a tool result.
 - `decision` and `convention` need a quote from a user prompt or a tool
   result.
+- A tool result is provable only if it came from `Read`, `Grep`, `Glob`,
+  `NotebookRead`, `LSP`, or a Bash command that uses no network client.
+  Results from `Agent`/`Task`, `Skill`, `WebFetch`, `WebSearch`, and every
+  `mcp__*` tool never count, nor does Bash running `curl` or `wget`
+  against anything but loopback, any non-loopback `scheme://` URL,
+  `scry -w`/`--web`, `gh api`, `http`/`https`, `git clone|fetch|pull`, or
+  `pip`/`npm`/`cargo`/`uv install`. The same rule applies to reinforce,
+  contradict, and reaffirm quotes; user prompts are unaffected.
 - A memory that fails is stored as an `episode` with its anchors dropped,
   so a wrong guess never lands as a fact.
 - Tool results that echo memory or the agent's own writing (edits, writes,
@@ -281,7 +289,7 @@ threshold settings.
 
 ### Compounding
 
-A reinforce claim needs a tool-result quote and runs `scry memory helpful`;
+A reinforce claim needs a provable tool-result quote and runs `scry memory helpful`;
 a contradict claim needs a tool-result or user quote and runs
 `scry memory noise`. Unproven claims are ignored, ids the model was not
 shown (reinforce, contradict, supersedes) are dropped, and each id is
@@ -293,8 +301,9 @@ memories and marks them in turn.
 
 ### Reaffirming stale memories
 
-When the session edited files in a repo, the worker runs
-`scry memory stale --file <path>` for those repo-relative paths and shows
+When the session edited files in a repo, the worker runs `scry index`
+once and then `scry memory stale --file <path>` for those repo-relative paths, so memories the edits just made stale are
+included, and shows
 the results to the model in a separate block, "stale memories anchored to
 files this session edited". The model may return `reaffirm` claims for
 those ids, each with a tool-result quote that shows the memory still
@@ -309,11 +318,15 @@ stale memory with a new one through `supersedes` works as before.
 ### Web content
 
 Tool results from `WebFetch`, `WebSearch`, any tool whose name contains
-`web` or `fetch`, and Bash commands running `scry --web`, `curl`, or
+`web` or `fetch`, and Bash commands running `scry -w`/`--web`, `curl`, or
 `wget` are rendered as `[web content omitted]`, so the model never reads
-them and they never count as proof. The calls stay visible. A `curl` or
-`wget` aimed only at loopback addresses (`localhost`, `127.0.0.1`,
-`[::1]`, `0.0.0.0`) is a local service check and renders normally.
+them. The calls stay visible. `curl` and `wget` match only as a command
+word (at the start or after `|`, `;`, `&&`, `||`, `$(`), and values of
+`-o`, `-d`, `-H` and their long forms are never read as hosts. They render
+normally only when every target and any `--proxy`/`-x` value is a
+loopback address (`localhost`, `127.0.0.1`, `[::1]`, `0.0.0.0`). Other
+subagent, MCP, and network-command results are not omitted but still never
+count as proof (see Proof gating).
 
 ### Daily gc
 
