@@ -631,6 +631,26 @@ mod tests {
     }
 
     #[test]
+    fn pruning_without_a_target_archives_what_the_repo_suppressed() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let a = store.upsert_repo("github.com/x/a").unwrap();
+        let noisy = store
+            .add_memory(&memory(Some(a), "agent", 0.1), &[])
+            .unwrap();
+        let kept = store
+            .add_memory(&memory(Some(a), "agent", 0.2), &[])
+            .unwrap();
+        store.memory_feedback(noisy, false, Some(a)).unwrap();
+        store.prune_repo("github.com/x/a", None).unwrap();
+
+        assert_eq!(store.memory(noisy).unwrap().unwrap().status, "archived");
+        assert_eq!(store.memory(kept).unwrap().unwrap().status, "live");
+        let query = [0.1, 1.0, 0.0, 0.0];
+        let found = store.memory_candidates(Scope::Unscoped, &query, 5).unwrap();
+        assert_eq!(found.iter().map(|(m, _)| m.id).collect::<Vec<_>>(), [kept]);
+    }
+
+    #[test]
     fn pruning_skips_a_live_memory_that_has_no_vector() {
         let mut store = Store::open_in_memory("m", 4).unwrap();
         let a = store.upsert_repo("github.com/x/a").unwrap();
