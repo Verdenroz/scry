@@ -43,7 +43,13 @@ hard-won bug fix.
 Recall score multiplies semantic similarity by stored salience, a recency
 decay (`[memory] half_life_days`, default 29), and learned utility
 (helpful retrievals over total retrievals). Memories fade with disuse and
-never hard-delete; one helpful retrieval re-strengthens them.
+never hard-delete; one helpful retrieval re-strengthens them. Recall
+ranks scope and global memories together with no cap on globals; only the
+brief caps them.
+
+Noise votes suppress a memory per scope. Suppressions apply to scopes
+that exist as a repo and to requests with no scope key at all; a scope
+key that has no repo yet sees no suppressions.
 
 ## Staleness
 
@@ -122,8 +128,10 @@ scry memory reaffirm <id> --evidence "text"
 ```
 
 `stale` lists stale, non-superseded memories in scope, one per line as
-`[kind #id] (stale) relpath[,relpath] content`; each `--file` narrows the
-list to memories anchored to it, and nothing prints when there are none.
+three tab-separated fields: `[kind #id] (stale)`, the anchored paths
+joined by `,`, and the content with `\` written as `\\` and newlines as
+`\n`. Each `--file` narrows the list to memories anchored to it, and
+nothing prints when there are none.
 `reaffirm` re-hashes the memory's anchors to the files as indexed now,
 marks it live, and appends the evidence. It fails unless the memory is
 stale, not superseded, and every anchor is still indexed. The server
@@ -146,8 +154,9 @@ Each row counts toward the first rule it matches:
   vote since it went stale.
 - `episodes`: an `episode` with no helpful votes whose recall score at
   similarity 1.0 is below `[memory] gc_episode_floor`.
-- `noise`: no helpful votes, and suppressed in at least two scopes. Votes
-  from a single scope are handled by suppression alone.
+- `noise`: no helpful votes, and suppressed in its own scope (a repo
+  memory) or in at least two repo scopes (a global memory). A global
+  suppressed in one scope is handled by suppression alone.
 
 It prints a count per rule, then `archived N` (`would archive N` with
 `--dry-run`).
@@ -167,9 +176,9 @@ gc_episode_floor = 0.1
 
 ### Arguments
 
-`--` ends option parsing for `scry remember` and `scry recall`; the rest
-is the content or query, so `scry remember -- "--no-touch skips counting"`
-keeps the leading dashes.
+`--` ends option parsing for `scry remember`, `scry recall`, and
+`scry memory verify`; the rest is the content, query, or claim, so
+`scry remember -- "--no-touch skips counting"` keeps the leading dashes.
 
 ## Verification
 
