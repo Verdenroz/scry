@@ -157,6 +157,47 @@ class WebTests(unittest.TestCase):
             entry = results_after("Bash", {"command": command})
             self.assertEqual(entry.body, ct.WEB_OMITTED, command)
 
+    def test_short_web_flag_is_omitted(self):
+        entry = results_after("Bash", {"command": 'scry -w "q"'})
+        self.assertEqual(entry.body, ct.WEB_OMITTED)
+
+    def test_every_target_must_be_loopback(self):
+        entry = results_after("Bash", {"command": "curl http://localhost/ example.com/page"})
+        self.assertEqual(entry.body, ct.WEB_OMITTED)
+
+    def test_remote_proxy_is_omitted(self):
+        for command in (
+            "curl --proxy evil.com:8080 http://localhost/",
+            "curl -x evil.com:8080 http://localhost/",
+            "curl --proxy=evil.com:8080 http://localhost/",
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+
+    def test_client_name_as_argument_is_not_a_call(self):
+        for command in ("grep -rn curl src/", "cat curl.sh", "echo wget"):
+            entry = results_after("Bash", {"command": command})
+            self.assertNotEqual(entry.body, ct.WEB_OMITTED, command)
+
+    def test_client_after_a_separator_is_a_call(self):
+        for command in (
+            "echo hi | curl https://x.dev",
+            "true; wget https://x.dev",
+            "true || curl https://x.dev",
+            "echo $(curl https://x.dev)",
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+
+    def test_option_values_are_never_hosts(self):
+        for command in (
+            "curl localhost:7399/health -o out.json",
+            "curl localhost:7399/x -H 'Accept: a.b.c' -d @body.json",
+            "curl --output out.json --data x.dev localhost:1/",
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertNotEqual(entry.body, ct.WEB_OMITTED, command)
+
     def test_local_scry_search_is_not_web(self):
         entry = results_after("Bash", {"command": 'scry "vec" --repo x'})
         self.assertEqual(entry.body, "[lesson #12] echoed")
