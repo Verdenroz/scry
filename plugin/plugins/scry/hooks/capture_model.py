@@ -120,7 +120,7 @@ def call(prompt: str, workdir: str) -> dict:
         ],
         input=prompt,
         cwd=workdir,
-        env={**os.environ, "SCRY_CAPTURE": "1", "CLAUDE_MEM_INTERNAL": "1"},
+        env={**os.environ, "SCRY_CAPTURE": "1"},
         capture_output=True,
         text=True,
         timeout=TIMEOUT,
