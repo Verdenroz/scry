@@ -5,7 +5,7 @@ use scry_core::config::Config;
 use scry_server::api::{VerifyRequest, VerifyResponse};
 use serde::Deserialize;
 
-use super::join_rest;
+use super::take_rest;
 use crate::client::ApiClient;
 
 const USAGE: &str =
@@ -25,23 +25,23 @@ struct Scored {
     millis: f64,
 }
 
-fn parse_args(args: &[String]) -> (Option<String>, Option<String>, Option<String>) {
+fn parse_args(args: &[String]) -> Result<(Option<String>, Option<String>, Option<String>)> {
     let (mut claim, mut evidence, mut eval) = (None, None, None);
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--evidence" => evidence = it.next().cloned(),
             "--eval" => eval = it.next().cloned(),
-            "--" => claim = claim.or(join_rest(it.by_ref())),
+            "--" => claim = take_rest(claim, it.by_ref(), USAGE)?,
             text if !text.starts_with('-') && claim.is_none() => claim = Some(text.to_string()),
             _ => {}
         }
     }
-    (claim, evidence, eval)
+    Ok((claim, evidence, eval))
 }
 
 pub async fn run(args: &[String]) -> Result<()> {
-    let (claim, evidence, eval) = parse_args(args);
+    let (claim, evidence, eval) = parse_args(args)?;
     let client = ApiClient::new(&Config::load(None)?.client);
     if let Some(path) = eval {
         return calibrate(&client, &path).await;
@@ -241,7 +241,7 @@ mod tests {
         let args: Vec<String> = ["--evidence", "ev", "--", "uses", "--flag", "-x"]
             .map(String::from)
             .to_vec();
-        let (claim, evidence, eval) = parse_args(&args);
+        let (claim, evidence, eval) = parse_args(&args).unwrap();
         assert_eq!(claim.as_deref(), Some("uses --flag -x"));
         assert_eq!(evidence.as_deref(), Some("ev"));
         assert_eq!(eval, None);
