@@ -144,6 +144,17 @@ def unmarked(ids, done) -> list:
     return [i for i in dict.fromkeys(ids) if i not in done]
 
 
+def stale_memories(edited, cwd: str):
+    if not edited:
+        return {}, {}
+    if error := capture_scry.index(cwd):
+        return {}, {"index_error": error}
+    try:
+        return capture_scry.stale(sorted(edited), cwd), {}
+    except RuntimeError as exc:
+        return {}, {"stale_error": str(exc)}
+
+
 def capture(payload: dict) -> dict:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     with open(STATE_DIR / f"{payload['session_id']}.lock", "w") as lock:
@@ -165,14 +176,13 @@ def capture_range(payload: dict) -> dict:
     existing.update(capture_scry.recall(capture_transcript.first_prompt(entries), cwd))
     text, kept = capture_transcript.render(entries)
     edited = repo_relative(capture_transcript.edited_paths(entries), cwd)
-    stale = {}
-    if edited:
-        capture_scry.index(cwd)
-        stale = capture_scry.stale(sorted(edited), cwd)
+    stale, lookup = stale_memories(edited, cwd)
     output = capture_model.call(
         capture_model.build_prompt(text, existing, stale), str(STATE_DIR)
     )
     plan = capture_verify.plan(output, kept, edited, set(existing), stale)
+    if "index_error" in lookup:
+        plan["memories"] = [{**m, "anchors": []} for m in plan["memories"]]
     plan["memories"], verdicts = verify_memories(plan["memories"], cwd)
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
@@ -194,6 +204,7 @@ def capture_range(payload: dict) -> dict:
         "episodes": sum(m["kind"] == "episode" for m in plan["memories"]),
         "helpful": len(plan["helpful"]),
         "noise": len(plan["noise"]),
+        **lookup,
         **verdicts,
         **reaffirmed,
         **({"verify_errors": errors} if errors else {}),

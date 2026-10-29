@@ -25,8 +25,12 @@ class Fake:
         verify=("not configured", 0),
         stale="",
         reaffirm_code=0,
+        index_code=0,
+        stale_code=0,
     ):
         self.output = output
+        self.index_code = index_code
+        self.stale_code = stale_code
         self.stale = stale
         self.reaffirm_code = reaffirm_code
         self.fail_anchored = fail_anchored
@@ -49,8 +53,12 @@ class Fake:
             claim = rest[rest.index("--") + 1] if "--" in rest else rest[0]
             if claim.startswith("-") and "--" not in rest:
                 out, code = "", 2
+        elif argv[:2] == ["scry", "index"]:
+            if self.index_code is None:
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            code = self.index_code
         elif argv[:3] == ["scry", "memory", "stale"]:
-            out = self.stale
+            out, code = self.stale, self.stale_code
         elif argv[:3] == ["scry", "memory", "reaffirm"]:
             out, code = f"reaffirmed #{argv[3]}", self.reaffirm_code
         elif argv[:2] == ["scry", "recall"]:
@@ -456,6 +464,35 @@ class ReaffirmTests(CaptureCase):
         self.assertEqual((result["helpful"], result["noise"]), (0, 0))
         self.assertEqual(fake.scry("scry", "memory", "helpful"), [])
         self.assertEqual(fake.scry("scry", "memory", "noise"), [])
+
+    def assert_index_failure_is_survived(self, code):
+        out = reaffirm_output()
+        out["memories"] = [lesson()]
+        fake = Fake(out, stale=STALE_LINE, index_code=code)
+        result = self.run_capture(fake)
+        self.assertIn("scry index", result["index_error"])
+        self.assertEqual(fake.scry("scry", "memory", "stale"), [])
+        self.assertEqual(fake.scry("scry", "memory", "reaffirm"), [])
+        self.assertEqual(result["written"], 1)
+        (remember,) = fake.scry("scry", "remember")
+        self.assertNotIn("--anchor", remember)
+
+    def test_index_exit_failure_is_logged_and_skips_stale_and_anchors(self):
+        self.assert_index_failure_is_survived(1)
+
+    def test_index_timeout_is_logged_and_skips_stale_and_anchors(self):
+        self.assert_index_failure_is_survived(None)
+
+    def test_stale_failure_is_logged_and_the_pass_continues(self):
+        out = reaffirm_output()
+        out["memories"] = [lesson()]
+        fake = Fake(out, stale=STALE_LINE, stale_code=2)
+        result = self.run_capture(fake)
+        self.assertIn("exited 2", result["stale_error"])
+        self.assertEqual(result["written"], 1)
+        self.assertEqual(result["reaffirmed"], [])
+        (remember,) = fake.scry("scry", "remember")
+        self.assertIn("--anchor", remember)
 
 
 class EntryTests(unittest.TestCase):

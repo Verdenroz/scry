@@ -41,7 +41,7 @@ def stale(files, cwd: str) -> dict:
     args = ["memory", "stale"] + [x for f in files for x in ("--file", f)]
     result = run(args, cwd)
     if result.returncode != 0:
-        return {}
+        raise RuntimeError(f"scry memory stale exited {result.returncode}")
     return {
         int(ident): (kind, unescape(content))
         for kind, ident, content in STALE.findall(result.stdout)
@@ -53,8 +53,14 @@ def reaffirm(ident: int, evidence: str, cwd: str) -> bool:
     return result.returncode == 0
 
 
-def index(cwd: str) -> None:
-    run(["index"], cwd, timeout=300)
+def index(cwd: str):
+    try:
+        result = run(["index"], cwd, timeout=300)
+    except subprocess.TimeoutExpired:
+        return "scry index timed out"
+    if result.returncode != 0:
+        return f"scry index exited {result.returncode}"
+    return None
 
 
 def mark(verb: str, ident: int, cwd: str) -> None:
