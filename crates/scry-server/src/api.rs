@@ -278,13 +278,7 @@ pub struct GcRequest {
     pub dry_run: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GcResponse {
-    pub superseded: usize,
-    pub stale: usize,
-    pub episodes: usize,
-    pub noise: usize,
-}
+pub type GcResponse = scry_core::memory_gc::GcReport;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RestoreRequest {

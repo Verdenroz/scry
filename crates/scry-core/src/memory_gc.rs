@@ -5,10 +5,11 @@ use crate::Result;
 use crate::config::MemoryConfig;
 use crate::memory::{now_epoch, recall_score};
 use crate::store::{MemoryRow, Store};
+use serde::{Deserialize, Serialize};
 
 const GLOBAL_NOISE_SCOPES: usize = 2;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GcReport {
     pub superseded: usize,
     pub stale: usize,

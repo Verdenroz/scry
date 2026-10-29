@@ -245,12 +245,7 @@ pub async fn gc(
         .store
         .call(move |store| memory_gc::gc(store, &config, request.dry_run))
         .await?;
-    Ok(Json(GcResponse {
-        superseded: report.superseded,
-        stale: report.stale,
-        episodes: report.episodes,
-        noise: report.noise,
-    }))
+    Ok(Json(report))
 }
 
 pub async fn restore(

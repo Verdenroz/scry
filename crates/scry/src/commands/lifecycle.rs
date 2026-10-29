@@ -65,10 +65,10 @@ pub async fn gc(args: &[String]) -> Result<()> {
     println!("stale: {}", report.stale);
     println!("episodes: {}", report.episodes);
     println!("noise: {}", report.noise);
-    let total = report.superseded + report.stale + report.episodes + report.noise;
     println!(
-        "{} {total}",
-        if dry_run { "would archive" } else { "archived" }
+        "{} {}",
+        if dry_run { "would archive" } else { "archived" },
+        report.total()
     );
     Ok(())
 }
