@@ -123,7 +123,7 @@ Suppressed memories are skipped by recall and brief.
 
 ```sh
 scry memory stale [--file relpath]...
-scry memory reaffirm <id> --evidence "text"
+scry memory reaffirm <id> --evidence "text" [--anchor path[:start-end]]...
 ```
 
 `stale` lists stale, non-superseded memories in scope, one per line as
@@ -134,9 +134,11 @@ inside a path is written `\,`, so split paths on unescaped commas. Each `--file`
 nothing prints when there are none.
 `reaffirm` re-hashes the memory's anchors to the files as indexed now,
 marks it live, and appends the evidence. It fails unless the memory is
-stale, not superseded, and every anchor is still indexed. The server
-checks those preconditions only; deciding that the memory still holds is
-the caller's job.
+stale, not superseded, and every anchor is still indexed. Passing
+`--anchor` replaces the memory's anchors before re-hashing, which keeps a
+memory whose anchored file was deleted or moved: same id, salience, and
+feedback history. The server checks those preconditions only; deciding
+that the memory still holds is the caller's job.
 
 ### GC and restore
 

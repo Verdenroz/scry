@@ -65,7 +65,7 @@ pub async fn remember(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn parse_anchor(spec: &str) -> AnchorDto {
+pub(super) fn parse_anchor(spec: &str) -> AnchorDto {
     match spec.rsplit_once(':') {
         Some((path, range)) if range.contains('-') || range.chars().all(|c| c.is_ascii_digit()) => {
             let (start, end) = match range.split_once('-') {
