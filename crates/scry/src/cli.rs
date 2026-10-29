@@ -99,12 +99,32 @@ pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
     })
 }
 
+const SUBCOMMANDS: &[&str] = &[
+    "serve", "index", "watch", "status", "eval", "remember", "recall", "memory", "repo",
+];
+
+/// True when a known subcommand was asked for help. Flags after `--` are
+/// content, and searches never qualify since their flags parse tolerantly.
+fn wants_help(args: &[String]) -> bool {
+    let Some((command, rest)) = args.split_first() else {
+        return true;
+    };
+    match command.as_str() {
+        "help" | "--help" | "-h" => true,
+        command if SUBCOMMANDS.contains(&command) => rest
+            .iter()
+            .take_while(|arg| *arg != "--")
+            .any(|arg| arg == "--help" || arg == "-h"),
+        _ => false,
+    }
+}
+
 pub async fn dispatch(args: &[String]) -> Result<()> {
+    if wants_help(args) {
+        println!("{USAGE}");
+        return Ok(());
+    }
     match args.first().map(String::as_str) {
-        None | Some("help" | "--help" | "-h") => {
-            println!("{USAGE}");
-            Ok(())
-        }
         Some("-V" | "--version") => {
             println!("scry {VERSION}");
             Ok(())
@@ -168,6 +188,22 @@ mod tests {
         assert!(parsed.rerank);
         let parsed = parse_search_args(&strings(&["--no-rerank", "query"])).unwrap();
         assert!(!parsed.rerank);
+    }
+
+    #[test]
+    fn help_flag_on_a_subcommand_never_runs_it() {
+        assert!(wants_help(&strings(&[])));
+        assert!(wants_help(&strings(&["--help"])));
+        assert!(wants_help(&strings(&["memory", "gc", "--help"])));
+        assert!(wants_help(&strings(&["serve", "-h"])));
+        assert!(!wants_help(&strings(&[
+            "remember",
+            "--",
+            "-h",
+            "means help"
+        ])));
+        assert!(!wants_help(&strings(&["memory", "gc", "--dry-run"])));
+        assert!(!wants_help(&strings(&["how does -h work", "--help"])));
     }
 
     #[test]
