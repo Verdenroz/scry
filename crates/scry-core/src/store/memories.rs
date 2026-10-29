@@ -216,25 +216,26 @@ impl Store {
     /// context).
     pub fn memory_feedback(&self, id: i64, helpful: bool, scope: Option<i64>) -> Result<bool> {
         let partition = scope_partition(scope);
+        let tx = self.conn.unchecked_transaction()?;
         let changed = if helpful {
-            let changed = self.conn.execute(
+            let changed = tx.execute(
                 "UPDATE memories SET helpful_count = helpful_count + 1,
                  last_access = unixepoch(), helpful_at = unixepoch() WHERE id = ?1",
                 [id],
             )?;
-            self.conn.execute(
+            tx.execute(
                 "DELETE FROM memory_suppressions WHERE memory_id = ?1 AND repo_id = ?2",
                 params![id, partition],
             )?;
             changed
         } else {
-            let changed = self.conn.execute(
+            let changed = tx.execute(
                 "UPDATE memories SET salience = salience * 0.8, noise_count = noise_count + 1
                  WHERE id = ?1",
                 [id],
             )?;
             if changed > 0 {
-                self.conn.execute(
+                tx.execute(
                     "INSERT INTO memory_suppressions (memory_id, repo_id) VALUES (?1, ?2)
                      ON CONFLICT (memory_id, repo_id) DO UPDATE SET created_at = unixepoch()",
                     params![id, partition],
@@ -242,6 +243,7 @@ impl Store {
             }
             changed
         };
+        tx.commit()?;
         Ok(changed > 0)
     }
 

@@ -120,9 +120,10 @@ impl Store {
 
     /// Distinct scopes that have suppressed each memory.
     pub fn suppression_scope_counts(&self) -> Result<HashMap<i64, i64>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT memory_id, count(*) FROM memory_suppressions GROUP BY memory_id")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT memory_id, count(*) FROM memory_suppressions
+             WHERE repo_id != 0 GROUP BY memory_id",
+        )?;
         let counts = stmt
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<std::result::Result<_, _>>()?;

@@ -217,7 +217,7 @@ pub async fn reaffirm(
         .store
         .call(move |store| store.reaffirm_memory(request.id, &request.evidence))
         .await
-        .map_err(|e| ApiError::NotFound(e.to_string()))?;
+        .map_err(not_found_if_config)?;
     Ok(Json(ReaffirmResponse { id: request.id }))
 }
 
@@ -274,7 +274,7 @@ pub async fn restore(
         .store
         .call(move |store| store.archived_memory(id))
         .await
-        .map_err(|e| ApiError::NotFound(e.to_string()))?;
+        .map_err(not_found_if_config)?;
     let embedding = state
         .embedder
         .embed(&[embed_text(&archived.kind, &archived.content)])
@@ -285,6 +285,13 @@ pub async fn restore(
         .store
         .call(move |store| store.restore_memory(id, &embedding))
         .await
-        .map_err(|e| ApiError::NotFound(e.to_string()))?;
+        .map_err(not_found_if_config)?;
     Ok(Json(RestoreResponse { id, status }))
+}
+
+fn not_found_if_config(error: scry_core::Error) -> ApiError {
+    match error {
+        scry_core::Error::Config(message) => ApiError::NotFound(message),
+        other => other.into(),
+    }
 }
