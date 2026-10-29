@@ -152,3 +152,58 @@ with zero false accepts and two of 14 good claims rejected at 0.2 (six
 rejected at 0.5). That is one measurement on a small set, not a default.
 The same set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77
 depending on phrasing, so calibrate before trusting any verifier.
+
+## Automatic capture
+
+The Claude Code plugin captures memories without the agent asking. At
+`PreCompact` and `SessionEnd` a detached worker renders the new part of
+the session transcript (user prompts, assistant text, tool calls, and the
+tail of each tool result, each numbered `[#n]`) and makes one headless
+`claude -p` pass over it. The model sees the memories injected during the
+session plus a `scry recall` on the first prompt, and returns up to five
+memories plus memories to reinforce or contradict. A per-session state
+file records how far the transcript was processed, so `PreCompact` then
+`SessionEnd` covers each part once; concurrent passes for one session
+serialize on a per-session lock. The recall it runs does not count as a
+retrieval (`--no-touch`). Sessions with fewer than three tool calls in
+the new range are skipped. `SCRY_CAPTURE_MODEL` picks the model
+and `SCRY_CAPTURE_LOG` the one-line-per-pass log.
+
+### Proof gating
+
+The script, not the model, decides what counts as proven. Every claim
+carries an entry number and a verbatim quote (20+ characters,
+whitespace-normalized) that must appear in that entry of the rendered
+transcript the model saw.
+
+- `lesson` and `fact` need a quote from a tool result.
+- `decision` and `convention` need a quote from a user prompt or a tool
+  result.
+- A memory that fails is stored as an `episode` with its anchors dropped,
+  so a wrong guess never lands as a fact.
+- Tool results that echo memory or the agent's own writing (edits, writes,
+  `scry recall|remember|memory`) never count as proof.
+- Anchors are limited to files the session edited.
+
+A true quote does not prove the claim follows from it. Every memory that
+survives the quote check as a `lesson`, `fact`, `decision`, or
+`convention` is then judged by `scry memory verify`, which compares the
+memory content against the full cited entry. `unsupported` downgrades it
+to an `episode` (anchors and supersession dropped). If verification is not
+configured, the quote-only result stands and the pass log records
+`"verify": "not configured"`. A failed or timed-out verify call fails
+closed and downgrades. Each pass logs the scores (`verified`) and the
+`downgraded` count. See the Verification section for the model and
+threshold settings.
+
+### Compounding
+
+A reinforce claim needs a tool-result quote and runs `scry memory helpful`;
+a contradict claim needs a tool-result or user quote and runs
+`scry memory noise`. Unproven claims are ignored, ids the model was not
+shown (reinforce, contradict, supersedes) are dropped, and each id is
+marked at most once per session. A new memory may name the one it
+replaces, but only a `lesson`, `fact`, `decision`, or `convention` that
+kept its kind through the proof check can retire it. At `SessionStart` the
+plugin injects `scry memory brief`, so the next session starts from these
+memories and marks them in turn.

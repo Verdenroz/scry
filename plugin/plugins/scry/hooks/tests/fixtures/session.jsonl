@@ -1,0 +1,10 @@
+{"type":"mode","mode":"default"}
+{"type":"user","message":{"role":"user","content":"why does the build fail on arm?"}}
+{"type":"user","isMeta":true,"message":{"role":"user","content":"meta noise"}}
+{"type":"attachment","attachment":{"type":"hook_additional_context","content":"Memories from past work:\n[lesson #12] (0.81) vec partition keys come first\n[fact #40] (0.50) (stale) chunker is server side"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Let me check the log."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo build"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"error: linker `cc` not found on this machine"}]}}
+{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"subagent chatter"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/repo/src/lib.rs","old_string":"a","new_string":"b"}},{"type":"tool_use","id":"t3","name":"Read","input":{"file_path":"/repo/src/main.rs"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"edited ok"}]},{"type":"tool_result","tool_use_id":"t3","content":"fn main() {}"}]}}
+not json

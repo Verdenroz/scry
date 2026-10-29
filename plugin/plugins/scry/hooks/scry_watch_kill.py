@@ -30,6 +30,8 @@ def read_hook_input():
 
 
 if __name__ == "__main__":
+    if os.environ.get("SCRY_CAPTURE") == "1":
+        sys.exit(0)
     payload = read_hook_input() or {}
     pid_file = f"/tmp/scry-watch-pid-{payload.get('session_id')}.txt"
     if not os.path.exists(pid_file):
