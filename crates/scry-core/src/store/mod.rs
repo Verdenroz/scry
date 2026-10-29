@@ -79,11 +79,8 @@ impl Store {
                      repo_id INTEGER PARTITION KEY,
                      embedding bit[{dim}]
                  );
-                 CREATE VIRTUAL TABLE vec_memories USING vec0(
-                     memory_id INTEGER PRIMARY KEY,
-                     repo_id INTEGER PARTITION KEY,
-                     embedding float[{dim}] distance_metric=cosine
-                 );"
+                 {}",
+                vec_memories_ddl(dim)
             ))?;
             conn.execute(
                 "INSERT INTO meta (key, value) VALUES
@@ -267,7 +264,18 @@ const MIGRATE_V3_TO_V4: &str = "BEGIN;
     UPDATE meta SET value = '4' WHERE key = 'schema_version';
     COMMIT;";
 
+fn vec_memories_ddl(dim: usize) -> String {
+    format!(
+        "CREATE VIRTUAL TABLE vec_memories USING vec0(
+            memory_id INTEGER PRIMARY KEY,
+            repo_id INTEGER PARTITION KEY,
+            embedding float[{dim}] distance_metric=cosine
+        );"
+    )
+}
+
 fn migrate_v4_to_v5(dim: usize) -> String {
+    let ddl = vec_memories_ddl(dim);
     format!(
         "BEGIN;
         ALTER TABLE memories ADD COLUMN helpful_at INTEGER;
@@ -283,11 +291,7 @@ fn migrate_v4_to_v5(dim: usize) -> String {
         CREATE TEMP TABLE memory_vectors_old AS
             SELECT memory_id, embedding FROM vec_memories;
         DROP TABLE vec_memories;
-        CREATE VIRTUAL TABLE vec_memories USING vec0(
-            memory_id INTEGER PRIMARY KEY,
-            repo_id INTEGER PARTITION KEY,
-            embedding float[{dim}] distance_metric=cosine
-        );
+        {ddl}
         INSERT INTO vec_memories (memory_id, repo_id, embedding)
             SELECT o.memory_id, coalesce(m.repo_id, 0), o.embedding
             FROM memory_vectors_old o JOIN memories m ON m.id = o.memory_id
