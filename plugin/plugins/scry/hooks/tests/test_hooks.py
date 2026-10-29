@@ -44,6 +44,17 @@ class BriefTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["timeout"], 5)
 
 
+    def test_work_lists_get_their_own_header(self):
+        with mock.patch(
+            "subprocess.run", return_value=brief_result("## ship (updated 1h ago)\n")
+        ) as run:
+            out = scry_watch.work_brief("/repo")
+        self.assertEqual(run.call_args.args[0], ["scry", "work"])
+        self.assertEqual(
+            out, "\n\n" + scry_watch.WORK_HEADER + "## ship (updated 1h ago)"
+        )
+
+
 class GcTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()

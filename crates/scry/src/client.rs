@@ -7,7 +7,8 @@ use scry_server::api::{
     RecallRequest, RecallResponse, RememberRequest, RememberResponse, RestoreRequest,
     RestoreResponse, SearchRequest, SearchResponse, StaleRequest, StaleResponse, StatusResponse,
     SupersedeRequest, SupersedeResponse, SyncRequest, SyncResponse, VerifyRequest, VerifyResponse,
-    WebSearchRequest, WebSearchResponse,
+    WebSearchRequest, WebSearchResponse, WorkAddRequest, WorkCloseRequest, WorkItemResponse,
+    WorkListNameResponse, WorkListRequest, WorkListResponse, WorkSetRequest, WorkStateRequest,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -126,6 +127,26 @@ impl ApiClient {
 
     pub async fn verify(&self, request: &VerifyRequest) -> Result<VerifyResponse> {
         self.post("/v1/memories/verify", request).await
+    }
+
+    pub async fn work_lists(&self, request: &WorkListRequest) -> Result<WorkListResponse> {
+        self.post("/v1/work/lists", request).await
+    }
+
+    pub async fn work_add(&self, request: &WorkAddRequest) -> Result<WorkItemResponse> {
+        self.post("/v1/work/add", request).await
+    }
+
+    pub async fn work_set(&self, request: &WorkSetRequest) -> Result<WorkItemResponse> {
+        self.post("/v1/work/set", request).await
+    }
+
+    pub async fn work_state(&self, request: &WorkStateRequest) -> Result<WorkListNameResponse> {
+        self.post("/v1/work/state", request).await
+    }
+
+    pub async fn work_close(&self, request: &WorkCloseRequest) -> Result<WorkListNameResponse> {
+        self.post("/v1/work/close", request).await
     }
 
     pub async fn web_search(&self, request: &WebSearchRequest) -> Result<WebSearchResponse> {

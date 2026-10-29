@@ -35,6 +35,13 @@ USAGE:
   scry memory restore <id>               bring an archived memory back
   scry memory verify \"claim\" --evidence T  score a claim against evidence
   scry memory verify --eval <pairs.jsonl>    calibrate the verifier on labelled pairs
+  scry work [--all]                      open work lists here with open items and state
+  scry work show <list> [--all]          one list; --all adds finished items
+  scry work add <list> \"task\" [--status S] [--note T]
+                                         add an item (status todo|doing|done|dropped)
+  scry work set <id> [status] [--note T] update an item
+  scry work state <list> key=value...    set list state; key= clears a key
+  scry work close|reopen <list>          hide a finished list, or bring it back
 
 SEARCH OPTIONS:
   -m, --max-count <n>   max results (default 10)
@@ -140,6 +147,7 @@ pub async fn dispatch(args: &[String]) -> Result<()> {
         Some("recall") => commands::memory::recall(&args[1..]).await,
         Some("memory") => commands::memory::run(&args[1..]).await,
         Some("repo") => commands::repo::run(&args[1..]).await,
+        Some("work") => commands::work::run(&args[1..]).await,
         Some("login" | "logout") => {
             println!("scry is self-hosted; auth is a bearer token in the config (SCRY_TOKEN)");
             Ok(())

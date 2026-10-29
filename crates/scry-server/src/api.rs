@@ -354,6 +354,73 @@ pub struct Citation {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct WorkListRequest {
+    pub repo_key: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub all: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkListResponse {
+    pub lists: Vec<scry_core::store::WorkList>,
+    /// Server clock, for ages against the server-stamped `updated_at`.
+    pub now: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkAddRequest {
+    pub repo_key: String,
+    pub list: String,
+    pub task: String,
+    #[serde(default = "default_work_status")]
+    pub status: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+fn default_work_status() -> String {
+    "todo".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkSetRequest {
+    pub repo_key: String,
+    pub id: i64,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkItemResponse {
+    pub id: i64,
+}
+
+/// State keys to set; a `None` value clears the key.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkStateRequest {
+    pub repo_key: String,
+    pub list: String,
+    pub entries: Vec<(String, Option<String>)>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkCloseRequest {
+    pub repo_key: String,
+    pub list: String,
+    #[serde(default)]
+    pub reopen: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkListNameResponse {
+    pub list: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub error: String,
 }

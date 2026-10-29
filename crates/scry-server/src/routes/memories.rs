@@ -270,7 +270,7 @@ pub async fn restore(
     Ok(Json(RestoreResponse { id, status }))
 }
 
-fn not_found_if_config(error: scry_core::Error) -> ApiError {
+pub(super) fn not_found_if_config(error: scry_core::Error) -> ApiError {
     match error {
         scry_core::Error::Config(message) => ApiError::NotFound(message),
         other => other.into(),

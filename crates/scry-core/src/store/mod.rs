@@ -6,10 +6,12 @@ mod chunks;
 mod files;
 mod lifecycle;
 mod memories;
+mod work;
 
 pub use chunks::{ChunkRow, DenseHit, LexicalHit, NewChunk};
 pub use files::StoredFile;
 pub use memories::{MemoryAnchor, MemoryRow, NewMemory, Scope, SourceStats};
+pub use work::{WORK_STATUSES, WorkItem, WorkList};
 
 use std::path::Path;
 use std::sync::Once;
@@ -20,7 +22,7 @@ use rusqlite::ffi::sqlite3_auto_extension;
 use crate::{Error, Result};
 
 const SCHEMA: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 
 static VEC_EXTENSION: Once = Once::new();
 
@@ -181,6 +183,7 @@ impl Store {
 /// v4 -> v5: memory vectors gain a scope partition (0 for globals),
 /// memories gain `helpful_at`, per-scope suppressions get a table, and
 /// legacy stale rows get a `stale_at`.
+/// v5 -> v6: work lists, items, and per-list state.
 fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     let version: String = conn.query_row(
         "SELECT value FROM meta WHERE key = 'schema_version'",
@@ -206,6 +209,9 @@ fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     }
     if version < 5 {
         conn.execute_batch(&migrate_v4_to_v5(dim))?;
+    }
+    if version < 6 {
+        conn.execute_batch(MIGRATE_V5_TO_V6)?;
     }
     Ok(())
 }
@@ -262,6 +268,35 @@ const MIGRATE_V3_TO_V4: &str = "BEGIN;
     ALTER TABLE memories ADD COLUMN stale_at INTEGER;
     ALTER TABLE memories ADD COLUMN noise_count INTEGER NOT NULL DEFAULT 0;
     UPDATE meta SET value = '4' WHERE key = 'schema_version';
+    COMMIT;";
+
+const MIGRATE_V5_TO_V6: &str = "BEGIN;
+    CREATE TABLE work_lists (
+        id INTEGER PRIMARY KEY,
+        repo_id INTEGER NOT NULL REFERENCES repos(id),
+        name TEXT NOT NULL,
+        closed_at INTEGER,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE (repo_id, name)
+    );
+
+    CREATE TABLE work_items (
+        id INTEGER PRIMARY KEY,
+        list_id INTEGER NOT NULL REFERENCES work_lists(id),
+        task TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'doing', 'done', 'dropped')),
+        note TEXT,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX work_items_by_list ON work_items(list_id);
+
+    CREATE TABLE work_state (
+        list_id INTEGER NOT NULL REFERENCES work_lists(id),
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        PRIMARY KEY (list_id, key)
+    );
+    UPDATE meta SET value = '6' WHERE key = 'schema_version';
     COMMIT;";
 
 fn vec_memories_ddl(dim: usize) -> String {
@@ -330,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_through_v5() {
+    fn migrates_v1_through_v6() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");
         {
@@ -357,6 +392,7 @@ mod tests {
                 .conn
                 .execute_batch(
                     "DROP TRIGGER chunks_ai; DROP TRIGGER chunks_ad;
+                     DROP TABLE work_state; DROP TABLE work_items; DROP TABLE work_lists;
                      DROP TABLE chunks_fts;
                      CREATE VIRTUAL TABLE chunks_fts USING fts5(
                          content, symbol, content='chunks', content_rowid='id');
@@ -410,7 +446,8 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "5");
+        assert_eq!(version, "6");
+        assert!(store.work_lists(1, None, false).unwrap().is_empty());
         let hits = store.lexical_search(None, "\"domains\"", 5, None).unwrap();
         assert_eq!(hits.len(), 1);
         let copied: i64 = store

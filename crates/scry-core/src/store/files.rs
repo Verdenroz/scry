@@ -88,6 +88,7 @@ impl Store {
             )?;
         }
         Store::repartition_memory_vectors(&tx, repo_id, migrate_to)?;
+        super::work::move_work(&tx, repo_id, migrate_to)?;
         match migrate_to {
             Some(target) => {
                 tx.execute(

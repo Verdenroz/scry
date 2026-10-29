@@ -24,7 +24,13 @@ MANDATE = (
     '[--pain 0-10] [--anchor path[:start-end]]`. Anchor to the relevant file '
     "so the memory goes stale when that code changes. Memories relevant to "
     "each prompt are injected automatically; mark them with "
-    "`scry memory helpful|noise <id>` when they influenced (or misled) you."
+    "`scry memory helpful|noise <id>` when they influenced (or misled) you.\n\n"
+    "WORK: track to-do lists and multi-step work state with `scry work`, never "
+    'a built-in to-do tool: `scry work add <list> "task"`, '
+    "`scry work set <id> doing|done|dropped [--note T]`, "
+    "`scry work state <list> key=value` for the latest branch, PR, or next step "
+    "(`key=` clears it), `scry work close <list>` when finished. Open lists "
+    "are shown at the start of every session."
 )
 
 GLOBAL_NOTE = (
@@ -85,22 +91,33 @@ def server_reachable() -> bool:
         return False
 
 
-def memory_brief(cwd: str) -> str:
+WORK_HEADER = "Open work lists here, from `scry work`:\n"
+
+
+def section(cwd: str, args: list, header: str) -> str:
     try:
         result = subprocess.run(
-            ["scry", "memory", "brief"],
+            ["scry", *args],
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=5,
         )
     except Exception as exc:
-        debug_log(f"scry memory brief failed: {exc}")
+        debug_log(f"scry {' '.join(args)} failed: {exc}")
         return ""
-    brief = result.stdout.strip()
-    if result.returncode != 0 or not brief:
+    body = result.stdout.strip()
+    if result.returncode != 0 or not body:
         return ""
-    return "\n\n" + BRIEF_HEADER + brief
+    return "\n\n" + header + body
+
+
+def memory_brief(cwd: str) -> str:
+    return section(cwd, ["memory", "brief"], BRIEF_HEADER)
+
+
+def work_brief(cwd: str) -> str:
+    return section(cwd, ["work"], WORK_HEADER)
 
 
 def gc_due() -> bool:
@@ -146,7 +163,7 @@ if __name__ == "__main__":
     # primary there, with global scry search offered instead.
     if at_or_above_home(cwd):
         debug_log(f"session cwd {cwd} is at or above home; offering global search only")
-        print(context(GLOBAL_NOTE + memory_brief(cwd)))
+        print(context(GLOBAL_NOTE + memory_brief(cwd) + work_brief(cwd)))
         sys.exit(0)
 
     pid_file = f"/tmp/scry-watch-pid-{payload.get('session_id')}.txt"
@@ -161,5 +178,5 @@ if __name__ == "__main__":
         with open(pid_file, "w") as handle:
             handle.write(str(process.pid))
 
-    print(context(MANDATE + memory_brief(cwd)))
+    print(context(MANDATE + memory_brief(cwd) + work_brief(cwd)))
     sys.exit(0)

@@ -8,6 +8,7 @@ pub mod serve;
 pub mod status;
 pub mod verify;
 pub mod watch;
+pub mod work;
 
 use anyhow::{Result, bail};
 use scry_core::config::Config;

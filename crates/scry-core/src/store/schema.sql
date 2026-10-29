@@ -104,6 +104,32 @@ CREATE TABLE memory_suppressions (
     UNIQUE (memory_id, repo_id)
 );
 
+CREATE TABLE work_lists (
+    id INTEGER PRIMARY KEY,
+    repo_id INTEGER NOT NULL REFERENCES repos(id),
+    name TEXT NOT NULL,
+    closed_at INTEGER,
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE (repo_id, name)
+);
+
+CREATE TABLE work_items (
+    id INTEGER PRIMARY KEY,
+    list_id INTEGER NOT NULL REFERENCES work_lists(id),
+    task TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'doing', 'done', 'dropped')),
+    note TEXT,
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX work_items_by_list ON work_items(list_id);
+
+CREATE TABLE work_state (
+    list_id INTEGER NOT NULL REFERENCES work_lists(id),
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (list_id, key)
+);
+
 CREATE TABLE meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
