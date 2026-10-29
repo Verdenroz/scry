@@ -10,6 +10,9 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### 🔧 Internal
+
+- plugin: Drop claude-mem guard and the scry skill (#27)
 
 
 ## 0.4.0 - 2026-10-29
