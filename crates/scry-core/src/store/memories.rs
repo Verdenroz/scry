@@ -292,23 +292,23 @@ impl Store {
         repo_id: i64,
         target: Option<i64>,
     ) -> Result<()> {
-        let mut ids =
-            conn.prepare("SELECT id FROM memories WHERE repo_id = ?1 AND status != 'archived'")?;
-        let ids: Vec<i64> = ids
-            .query_map([repo_id], |row| row.get(0))?
-            .collect::<std::result::Result<_, _>>()?;
-        for id in ids {
-            let embedding: Vec<u8> = conn.query_row(
-                "SELECT embedding FROM vec_memories WHERE memory_id = ?1",
-                [id],
-                |row| row.get(0),
-            )?;
-            conn.execute("DELETE FROM vec_memories WHERE memory_id = ?1", [id])?;
-            conn.execute(
-                "INSERT INTO vec_memories (memory_id, repo_id, embedding) VALUES (?1, ?2, ?3)",
-                params![id, scope_partition(target), embedding],
-            )?;
-        }
+        conn.execute(
+            "CREATE TEMP TABLE memory_vectors_moving AS
+             SELECT v.memory_id, v.embedding FROM vec_memories v
+             JOIN memories m ON m.id = v.memory_id
+             WHERE m.repo_id = ?1 AND m.status != 'archived'",
+            [repo_id],
+        )?;
+        conn.execute_batch(
+            "DELETE FROM vec_memories
+             WHERE memory_id IN (SELECT memory_id FROM memory_vectors_moving)",
+        )?;
+        conn.execute(
+            "INSERT INTO vec_memories (memory_id, repo_id, embedding)
+             SELECT memory_id, ?1, embedding FROM memory_vectors_moving",
+            [scope_partition(target)],
+        )?;
+        conn.execute_batch("DROP TABLE memory_vectors_moving")?;
         Ok(())
     }
 
@@ -628,6 +628,28 @@ mod tests {
                 .id,
             id
         );
+    }
+
+    #[test]
+    fn pruning_skips_a_live_memory_that_has_no_vector() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let a = store.upsert_repo("github.com/x/a").unwrap();
+        let b = store.upsert_repo("github.com/x/b").unwrap();
+        let orphan = store
+            .add_memory(&memory(Some(a), "agent", 0.1), &[])
+            .unwrap();
+        let moved = store
+            .add_memory(&memory(Some(a), "agent", 0.2), &[])
+            .unwrap();
+        store
+            .conn
+            .execute("DELETE FROM vec_memories WHERE memory_id = ?1", [orphan])
+            .unwrap();
+        store.prune_repo("github.com/x/a", Some(b)).unwrap();
+
+        let query = [0.2, 1.0, 0.0, 0.0];
+        let found = store.memory_candidates(Scope::Repo(b), &query, 5).unwrap();
+        assert_eq!(found.iter().map(|(m, _)| m.id).collect::<Vec<_>>(), [moved]);
     }
 
     #[test]
