@@ -481,11 +481,7 @@ class ReaffirmTests(CaptureCase):
         self.assertEqual((result["helpful"], result["noise"]), (0, 0))
         self.assertEqual(fake.scry("scry", "memory", "helpful"), [])
 
-    def test_stale_tsv_unescapes_tabs_and_splits_paths_on_unescaped_commas(self):
-        field = "a\\,b.rs,c\\\\,d.rs"
-        self.assertEqual(
-            capture_scry.split_paths(field), ["a,b.rs", "c\\", "d.rs"]
-        )
+    def test_stale_tsv_unescapes_content_with_escaped_paths(self):
         line = "[fact #31] (stale)\ta\\,b.rs\tcol\\tumn\\r\\n\n"
         fake = Fake(reaffirm_output(), stale=line)
         with mock.patch("subprocess.run", fake):

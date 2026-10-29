@@ -7,7 +7,6 @@ REMEMBERED = re.compile(r"remembered #(\d+)")
 STALE = re.compile(r"^\[(\w+) #(\d+)\] \(stale\)\t[^\t\n]*\t(.*)$", re.MULTILINE)
 ESCAPE = re.compile(r"\\([\\ntr,])")
 UNESCAPED = {"n": "\n", "t": "\t", "r": "\r"}
-PATH = re.compile(r"(?:\\.|[^\\,])+")
 
 
 def run(args, cwd, timeout=60):
@@ -37,10 +36,6 @@ def remember(memory, cwd):
 
 def unescape(text: str) -> str:
     return ESCAPE.sub(lambda m: UNESCAPED.get(m.group(1), m.group(1)), text)
-
-
-def split_paths(field: str) -> list:
-    return [unescape(path) for path in PATH.findall(field)]
 
 
 def stale(files, cwd: str) -> dict:
