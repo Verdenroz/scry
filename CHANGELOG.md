@@ -1,13 +1,25 @@
 # Changelog
 
-## Unreleased (draft vs v0.3.0)
+## 0.4.0 - 2026-10-29
 
 <!-- soothfast:notes -->
-<!-- ### Overview -->
-<!-- What this release means for someone using it. One paragraph. -->
+### Overview
 
-<!-- ### Upgrade notes -->
-<!-- What a consumer has to do. "Nothing" is a useful answer. -->
+Work-state release. `scry work` keeps per-repo to-do lists on the
+server: items with a `todo`/`doing`/`done`/`dropped` status and an
+optional note, plus free-form `key=value` state per list for the current
+branch, PR, or next step. The plugin shows open lists at session start,
+so an agent picks up where the last one stopped. A stale memory can now
+be re-anchored when reaffirmed (`memory reaffirm --anchor`), which
+covers the case where its original file was deleted, and `--help` on a
+subcommand prints usage instead of running it.
+
+### Upgrade notes
+
+Back up `index.db` before starting the new server. It migrates the
+schema from v5 to v6 on first start, and older binaries refuse the
+migrated file. Restart the server, then run `claude plugin update
+scry@scry` to get plugin 0.1.7.
 <!-- /soothfast:notes -->
 
 ### ✨ Features
