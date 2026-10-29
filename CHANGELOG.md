@@ -1,13 +1,33 @@
 # Changelog
 
-## Unreleased (draft vs v0.2.0)
+## 0.3.0 - 2026-10-28
 
 <!-- soothfast:notes -->
-<!-- ### Overview -->
-<!-- What this release means for someone using it. One paragraph. -->
+### Overview
 
-<!-- ### Upgrade notes -->
-<!-- What a consumer has to do. "Nothing" is a useful answer. -->
+Memory release. scry now captures memories on its own: at `PreCompact`
+and `SessionEnd` the plugin has a model read the session and propose up
+to five typed memories, and a lesson or fact only survives if it quotes
+provable tool output and passes a configurable verifier, so a guess lands
+as a fading episode instead of a fact. Recall is partitioned by scope, so
+other repos' memories never crowd yours out, and folders at or above
+`$HOME` get their own `path:~` scope. A noise vote hides a memory in the
+scope that cast it, stale memories can be reaffirmed with fresh evidence,
+and `scry memory gc` archives what nothing uses. New commands:
+`memory brief`, `supersede`, `stats`, `verify` (with `--eval`
+calibration), `stale`, `reaffirm`, `gc` and `restore`.
+
+### Upgrade notes
+
+Back up `index.db` before starting the new server. It migrates the
+schema from v3 to v5 on first start, and older binaries refuse the
+migrated file. Restart the server, then run `claude plugin update
+scry@scry` to get plugin 0.1.6. Claim verification is off until you add
+a `[verify]` section; calibrate it with `scry memory verify --eval
+eval/verify-pairs.jsonl`, and without it capture relies on the quote
+check alone. If a repo was ever indexed under two keys, such as a
+directory-name key from before it had a git remote, merge them with
+`scry repo prune <old> --into <new>`.
 <!-- /soothfast:notes -->
 
 ### ✨ Features
