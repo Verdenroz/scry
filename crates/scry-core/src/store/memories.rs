@@ -55,13 +55,11 @@ pub(super) fn scope_partition(repo_id: Option<i64>) -> i64 {
     repo_id.unwrap_or(0)
 }
 
-/// Excludes memories marked noise in the current scope, unless a helpful
-/// vote landed after the suppression.
+/// Excludes memories marked noise in the current scope.
 fn not_suppressed(repo_id: Option<i64>) -> String {
     format!(
         "NOT EXISTS (SELECT 1 FROM memory_suppressions s
-                     WHERE s.memory_id = memories.id AND s.repo_id = {}
-                       AND coalesce(memories.helpful_at, 0) <= s.created_at)",
+                     WHERE s.memory_id = memories.id AND s.repo_id = {})",
         scope_partition(repo_id)
     )
 }
@@ -208,15 +206,14 @@ impl Store {
         Ok(())
     }
 
-    /// Helpful votes lift the scope's suppression and stamp `helpful_at`;
-    /// noise votes also suppress the memory in `scope` (`None` is the
-    /// unscoped context).
+    /// A helpful vote lifts the memory's suppression in `scope`; a noise
+    /// vote suppresses it there (`None` is the unscoped context).
     pub fn memory_feedback(&self, id: i64, helpful: bool, scope: Option<i64>) -> Result<bool> {
         let partition = scope_partition(scope);
         let changed = if helpful {
             let changed = self.conn.execute(
                 "UPDATE memories SET helpful_count = helpful_count + 1,
-                 last_access = unixepoch(), helpful_at = unixepoch() WHERE id = ?1",
+                 last_access = unixepoch() WHERE id = ?1",
                 [id],
             )?;
             self.conn.execute(
@@ -479,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn suppression_hides_a_memory_in_its_scope_until_a_later_helpful_vote() {
+    fn suppression_is_per_scope_and_lifted_only_by_a_helpful_vote_there() {
         let mut store = Store::open_in_memory("m", 4).unwrap();
         let a = store.upsert_repo("github.com/x/a").unwrap();
         let b = store.upsert_repo("github.com/x/b").unwrap();
@@ -500,14 +497,6 @@ mod tests {
 
         store.memory_feedback(global, true, Some(b)).unwrap();
         assert_eq!(visible(a), 0);
-        store
-            .conn
-            .execute(
-                "UPDATE memory_suppressions SET created_at = created_at - 10",
-                [],
-            )
-            .unwrap();
-        assert_eq!(visible(a), 2);
 
         store.memory_feedback(global, false, Some(a)).unwrap();
         assert_eq!(visible(a), 0);
