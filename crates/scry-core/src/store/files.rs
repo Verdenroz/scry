@@ -69,41 +69,41 @@ impl Store {
         for relpath in &relpaths {
             self.delete_file(repo_id, relpath)?;
         }
-        self.repartition_memory_vectors(repo_id, migrate_to)?;
+        let tx = self.conn.transaction()?;
+        Store::repartition_memory_vectors(&tx, repo_id, migrate_to)?;
         match migrate_to {
             Some(target) => {
-                self.conn.execute(
+                tx.execute(
                     "UPDATE OR IGNORE memory_suppressions SET repo_id = ?2 WHERE repo_id = ?1",
-                    rusqlite::params![repo_id, target],
+                    params![repo_id, target],
                 )?;
-                self.conn.execute(
+                tx.execute(
                     "DELETE FROM memory_suppressions WHERE repo_id = ?1",
                     [repo_id],
                 )?;
-                self.conn.execute(
+                tx.execute(
                     "UPDATE memory_anchors SET repo_id = ?2 WHERE repo_id = ?1",
-                    rusqlite::params![repo_id, target],
+                    params![repo_id, target],
                 )?;
-                self.conn.execute(
+                tx.execute(
                     "UPDATE memories SET repo_id = ?2 WHERE repo_id = ?1",
-                    rusqlite::params![repo_id, target],
+                    params![repo_id, target],
                 )?;
             }
             None => {
-                self.conn.execute(
+                tx.execute(
                     "DELETE FROM memory_suppressions WHERE repo_id = ?1",
                     [repo_id],
                 )?;
-                self.conn
-                    .execute("DELETE FROM memory_anchors WHERE repo_id = ?1", [repo_id])?;
-                self.conn.execute(
+                tx.execute("DELETE FROM memory_anchors WHERE repo_id = ?1", [repo_id])?;
+                tx.execute(
                     "UPDATE memories SET repo_id = NULL WHERE repo_id = ?1",
                     [repo_id],
                 )?;
             }
         }
-        self.conn
-            .execute("DELETE FROM repos WHERE id = ?1", [repo_id])?;
+        tx.execute("DELETE FROM repos WHERE id = ?1", [repo_id])?;
+        tx.commit()?;
         Ok(deleted)
     }
 

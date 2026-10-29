@@ -1,4 +1,4 @@
-use rusqlite::{Row, params};
+use rusqlite::{Connection, Row, params};
 
 use super::{Store, vector_bytes};
 use crate::Result;
@@ -58,12 +58,44 @@ pub(super) fn scope_partition(repo_id: Option<i64>) -> i64 {
     repo_id.unwrap_or(0)
 }
 
-/// Excludes memories marked noise in the current scope.
-fn not_suppressed(repo_id: Option<i64>) -> String {
+/// Who is asking, which decides the visible memories and the suppressions
+/// that apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// No scope key: globals only, under the unscoped suppression votes.
+    Unscoped,
+    /// A scope key with a repo row.
+    Repo(i64),
+    /// A scope key with no repo row yet: globals only, no suppressions.
+    Unseen,
+}
+
+impl Scope {
+    pub fn repo_id(self) -> Option<i64> {
+        match self {
+            Scope::Repo(id) => Some(id),
+            Scope::Unscoped | Scope::Unseen => None,
+        }
+    }
+
+    pub fn is_scoped(self) -> bool {
+        self != Scope::Unscoped
+    }
+}
+
+/// Excludes memories marked noise in the asking scope.
+fn not_suppressed(scope: Scope) -> String {
+    match scope {
+        Scope::Unscoped => suppressed_in(0),
+        Scope::Repo(id) => suppressed_in(id),
+        Scope::Unseen => "TRUE".to_string(),
+    }
+}
+
+fn suppressed_in(partition: i64) -> String {
     format!(
         "NOT EXISTS (SELECT 1 FROM memory_suppressions s
-                     WHERE s.memory_id = memories.id AND s.repo_id = {})",
-        scope_partition(repo_id)
+                     WHERE s.memory_id = memories.id AND s.repo_id = {partition})"
     )
 }
 
@@ -137,10 +169,11 @@ impl Store {
     /// partitioned KNN so a large neighbor scope cannot crowd the result.
     pub fn memory_candidates(
         &self,
-        repo_id: Option<i64>,
+        scope: Scope,
         query: &[f32],
         k: usize,
     ) -> Result<Vec<(MemoryRow, f64)>> {
+        let repo_id = scope.repo_id();
         let mut near = self.memory_neighbors(scope_partition(repo_id), query, k)?;
         if repo_id.is_some() {
             near.extend(self.memory_neighbors(0, query, k)?);
@@ -151,7 +184,7 @@ impl Store {
             "SELECT {ROW_COLUMNS} FROM memories
              WHERE id = ?1 AND status != 'archived' AND superseded_by IS NULL
                AND {}",
-            not_suppressed(repo_id)
+            not_suppressed(scope)
         ))?;
         let mut rows = Vec::new();
         for (memory_id, distance) in near {
@@ -250,25 +283,23 @@ impl Store {
     /// Moves the vectors of a repo's memories to `target`'s partition, or
     /// to the global partition when `target` is `None`.
     pub(super) fn repartition_memory_vectors(
-        &self,
+        conn: &Connection,
         repo_id: i64,
         target: Option<i64>,
     ) -> Result<()> {
-        let mut ids = self
-            .conn
-            .prepare("SELECT id FROM memories WHERE repo_id = ?1 AND status != 'archived'")?;
+        let mut ids =
+            conn.prepare("SELECT id FROM memories WHERE repo_id = ?1 AND status != 'archived'")?;
         let ids: Vec<i64> = ids
             .query_map([repo_id], |row| row.get(0))?
             .collect::<std::result::Result<_, _>>()?;
         for id in ids {
-            let embedding: Vec<u8> = self.conn.query_row(
+            let embedding: Vec<u8> = conn.query_row(
                 "SELECT embedding FROM vec_memories WHERE memory_id = ?1",
                 [id],
                 |row| row.get(0),
             )?;
-            self.conn
-                .execute("DELETE FROM vec_memories WHERE memory_id = ?1", [id])?;
-            self.conn.execute(
+            conn.execute("DELETE FROM vec_memories WHERE memory_id = ?1", [id])?;
+            conn.execute(
                 "INSERT INTO vec_memories (memory_id, repo_id, embedding) VALUES (?1, ?2, ?3)",
                 params![id, scope_partition(target), embedding],
             )?;
@@ -316,15 +347,15 @@ impl Store {
 
     /// Live, unsuppressed memories in scope (plus repo-less globals); no
     /// access bookkeeping.
-    pub fn live_memories(&self, repo_id: Option<i64>) -> Result<Vec<MemoryRow>> {
+    pub fn live_memories(&self, scope: Scope) -> Result<Vec<MemoryRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM memories
              WHERE status = 'live' AND superseded_by IS NULL
                AND (repo_id IS NULL OR repo_id = ?1) AND {}",
-            not_suppressed(repo_id)
+            not_suppressed(scope)
         ))?;
         let rows = stmt
-            .query_map([repo_id], memory_row)?
+            .query_map([scope.repo_id()], memory_row)?
             .collect::<std::result::Result<_, _>>()?;
         Ok(rows)
     }
@@ -333,7 +364,7 @@ impl Store {
     /// newest first.
     pub fn recently_stale_memories(
         &self,
-        repo_id: Option<i64>,
+        scope: Scope,
         since: i64,
         limit: usize,
     ) -> Result<Vec<MemoryRow>> {
@@ -342,10 +373,10 @@ impl Store {
              WHERE status = 'stale' AND superseded_by IS NULL AND stale_at >= ?2
                AND (repo_id IS NULL OR repo_id = ?1) AND {}
              ORDER BY stale_at DESC LIMIT ?3",
-            not_suppressed(repo_id)
+            not_suppressed(scope)
         ))?;
         let rows = stmt
-            .query_map(params![repo_id, since, limit as i64], memory_row)?
+            .query_map(params![scope.repo_id(), since, limit as i64], memory_row)?
             .collect::<std::result::Result<_, _>>()?;
         Ok(rows)
     }
@@ -428,24 +459,26 @@ mod tests {
         let id = store
             .add_memory(&memory(Some(repo), "agent", 0.1), &[anchor])
             .unwrap();
-        assert_eq!(store.live_memories(Some(repo)).unwrap().len(), 1);
+        assert_eq!(store.live_memories(Scope::Repo(repo)).unwrap().len(), 1);
         assert!(
             store
-                .recently_stale_memories(Some(repo), 0, 5)
+                .recently_stale_memories(Scope::Repo(repo), 0, 5)
                 .unwrap()
                 .is_empty()
         );
 
         assert_eq!(store.mark_stale_anchors(repo, "a.rs", "new").unwrap(), 1);
-        assert!(store.live_memories(Some(repo)).unwrap().is_empty());
-        let stale = store.recently_stale_memories(Some(repo), 0, 5).unwrap();
+        assert!(store.live_memories(Scope::Repo(repo)).unwrap().is_empty());
+        let stale = store
+            .recently_stale_memories(Scope::Repo(repo), 0, 5)
+            .unwrap();
         assert_eq!(stale.len(), 1);
         assert_eq!(stale[0].id, id);
         assert!(stale[0].stale_at.is_some());
         let future = stale[0].stale_at.unwrap() + 1;
         assert!(
             store
-                .recently_stale_memories(Some(repo), future, 5)
+                .recently_stale_memories(Scope::Repo(repo), future, 5)
                 .unwrap()
                 .is_empty()
         );
@@ -463,8 +496,8 @@ mod tests {
             .add_memory(&memory(Some(b), "agent", 0.2), &[])
             .unwrap();
         store.add_memory(&memory(None, "agent", 0.3), &[]).unwrap();
-        assert_eq!(store.live_memories(Some(a)).unwrap().len(), 2);
-        assert_eq!(store.live_memories(None).unwrap().len(), 1);
+        assert_eq!(store.live_memories(Scope::Repo(a)).unwrap().len(), 2);
+        assert_eq!(store.live_memories(Scope::Unscoped).unwrap().len(), 1);
     }
 
     #[test]
@@ -483,7 +516,7 @@ mod tests {
         let global = store.add_memory(&memory(None, "agent", 0.8), &[]).unwrap();
 
         let found = store
-            .memory_candidates(Some(a), &[0.0, 1.0, 0.0, 0.0], 2)
+            .memory_candidates(Scope::Repo(a), &[0.0, 1.0, 0.0, 0.0], 2)
             .unwrap();
         let ids: Vec<i64> = found.iter().map(|(row, _)| row.id).collect();
         assert_eq!(ids.len(), 2);
@@ -500,10 +533,10 @@ mod tests {
         let query = [0.1, 1.0, 0.0, 0.0];
         let visible = |scope: i64| {
             store
-                .memory_candidates(Some(scope), &query, 5)
+                .memory_candidates(Scope::Repo(scope), &query, 5)
                 .unwrap()
                 .len()
-                + store.live_memories(Some(scope)).unwrap().len()
+                + store.live_memories(Scope::Repo(scope)).unwrap().len()
         };
         assert_eq!(visible(a), 2);
 
@@ -521,6 +554,50 @@ mod tests {
     }
 
     #[test]
+    fn a_noise_vote_without_a_key_does_not_hide_the_memory_in_a_new_scope() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let global = store.add_memory(&memory(None, "agent", 0.1), &[]).unwrap();
+        let query = [0.1, 1.0, 0.0, 0.0];
+        store.memory_feedback(global, false, None).unwrap();
+
+        let unseen = store.scope(Some("github.com/x/new")).unwrap();
+        assert_eq!(unseen, Scope::Unseen);
+        assert_eq!(store.memory_candidates(unseen, &query, 5).unwrap().len(), 1);
+        assert_eq!(store.live_memories(unseen).unwrap().len(), 1);
+        assert!(
+            store
+                .memory_candidates(Scope::Unscoped, &query, 5)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn pruning_moves_vectors_and_suppressions_together() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let a = store.upsert_repo("github.com/x/a").unwrap();
+        let b = store.upsert_repo("github.com/x/b").unwrap();
+        let id = store
+            .add_memory(&memory(Some(a), "agent", 0.1), &[])
+            .unwrap();
+        store.memory_feedback(id, false, Some(a)).unwrap();
+        store.prune_repo("github.com/x/a", Some(b)).unwrap();
+
+        let partitions = |table: &str| -> Vec<i64> {
+            let mut stmt = store
+                .conn
+                .prepare(&format!("SELECT repo_id FROM {table} WHERE memory_id = ?1"))
+                .unwrap();
+            stmt.query_map([id], |row| row.get(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(partitions("vec_memories"), vec![b]);
+        assert_eq!(partitions("memory_suppressions"), vec![b]);
+    }
+
+    #[test]
     fn pruning_a_repo_moves_its_memory_vectors() {
         let mut store = Store::open_in_memory("m", 4).unwrap();
         let a = store.upsert_repo("github.com/x/a").unwrap();
@@ -531,12 +608,16 @@ mod tests {
         let query = [0.1, 1.0, 0.0, 0.0];
         store.prune_repo("github.com/x/a", Some(b)).unwrap();
         assert_eq!(
-            store.memory_candidates(Some(b), &query, 5).unwrap()[0].0.id,
+            store.memory_candidates(Scope::Repo(b), &query, 5).unwrap()[0]
+                .0
+                .id,
             id
         );
         store.prune_repo("github.com/x/b", None).unwrap();
         assert_eq!(
-            store.memory_candidates(None, &query, 5).unwrap()[0].0.id,
+            store.memory_candidates(Scope::Unscoped, &query, 5).unwrap()[0]
+                .0
+                .id,
             id
         );
     }
@@ -552,13 +633,13 @@ mod tests {
         store.memory_feedback(old, true, None).unwrap();
 
         assert!(!store.supersede_memory(old, 999).unwrap());
-        assert_eq!(store.live_memories(None).unwrap().len(), 2);
+        assert_eq!(store.live_memories(Scope::Unscoped).unwrap().len(), 2);
         assert!(store.supersede_memory(old, new).unwrap());
         let third = store.add_memory(&memory(None, "agent", 0.4), &[]).unwrap();
         assert!(!store.supersede_memory(old, third).unwrap());
         assert!(!store.supersede_memory(new, old).unwrap());
         assert!(!store.supersede_memory(third, old).unwrap());
-        assert_eq!(store.live_memories(None).unwrap().len(), 2);
+        assert_eq!(store.live_memories(Scope::Unscoped).unwrap().len(), 2);
 
         let noise: i64 = store
             .conn

@@ -9,7 +9,7 @@ mod memories;
 
 pub use chunks::{ChunkRow, DenseHit, LexicalHit, NewChunk};
 pub use files::StoredFile;
-pub use memories::{MemoryAnchor, MemoryRow, NewMemory, SourceStats};
+pub use memories::{MemoryAnchor, MemoryRow, NewMemory, Scope, SourceStats};
 
 use std::path::Path;
 use std::sync::Once;
@@ -139,6 +139,14 @@ impl Store {
                 row.get(0)
             })?;
         Ok(id)
+    }
+
+    /// The asking scope for an optional scope key.
+    pub fn scope(&self, key: Option<&str>) -> Result<Scope> {
+        Ok(match key {
+            None => Scope::Unscoped,
+            Some(key) => self.repo_id(key)?.map_or(Scope::Unseen, Scope::Repo),
+        })
     }
 
     pub fn repo_id(&self, key: &str) -> Result<Option<i64>> {

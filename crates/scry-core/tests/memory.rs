@@ -4,7 +4,7 @@ use scry_core::config::IndexConfig;
 use scry_core::embed::{Embedder, HashEmbedder};
 use scry_core::index::index_repo;
 use scry_core::memory::{AnchorSpec, MemoryDraft, brief, recall_with_vector, remember};
-use scry_core::store::Store;
+use scry_core::store::{Scope, Store};
 
 const REPO_KEY: &str = "github.com/test/memory";
 
@@ -75,7 +75,7 @@ async fn remember_recall_staleness_and_feedback() {
         .unwrap()
         .pop()
         .unwrap();
-    let hits = recall_with_vector(&store, Some(repo_id), true, &query_vec, 5, 29.0, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
     assert_eq!(hits[0].id, id);
     assert!(!hits[0].stale);
     let live_score = hits[0].score;
@@ -95,13 +95,13 @@ async fn remember_recall_staleness_and_feedback() {
     .await
     .unwrap();
 
-    let hits = recall_with_vector(&store, Some(repo_id), true, &query_vec, 5, 29.0, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
     assert_eq!(hits[0].id, id);
     assert!(hits[0].stale);
     assert!(hits[0].score < live_score);
 
     assert!(store.memory_feedback(id, true, Some(repo_id)).unwrap());
-    let hits = recall_with_vector(&store, Some(repo_id), true, &query_vec, 5, 29.0, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
     assert!(hits[0].score > 0.0);
 
     let (total, stale) = store.memory_counts().unwrap();
@@ -174,21 +174,21 @@ async fn brief_ranks_scope_and_globals_without_touching_access() {
         ids.push(remember(&mut store, &embedder, d).await.unwrap().0);
     }
 
-    let digest = brief(&store, Some(repo_id), true, 8, 7, 29.0).unwrap();
+    let digest = brief(&store, Scope::Repo(repo_id), 8, 7, 29.0).unwrap();
     let got: Vec<i64> = digest.top.iter().map(|h| h.id).collect();
     assert_eq!(got.len(), 3);
     assert!(!got.contains(&ids[2]));
     assert_eq!(got[0], ids[0]);
     assert!(digest.went_stale.is_empty());
     assert_eq!(
-        brief(&store, Some(repo_id), true, 1, 7, 29.0)
+        brief(&store, Scope::Repo(repo_id), 1, 7, 29.0)
             .unwrap()
             .top
             .len(),
         1
     );
 
-    let rows = store.live_memories(Some(repo_id)).unwrap();
+    let rows = store.live_memories(Scope::Repo(repo_id)).unwrap();
     assert!(rows.iter().all(|row| row.access_count == 0));
 }
 
@@ -227,12 +227,12 @@ async fn brief_lists_recently_stale_and_rejects_unknown_source() {
     .await
     .unwrap();
 
-    let digest = brief(&store, Some(repo_id), true, 8, 7, 29.0).unwrap();
+    let digest = brief(&store, Scope::Repo(repo_id), 8, 7, 29.0).unwrap();
     assert!(digest.top.is_empty());
     assert_eq!(digest.went_stale.len(), 1);
     assert_eq!(digest.went_stale[0].id, id);
     assert!(
-        brief(&store, Some(repo_id), true, 8, 0, 29.0)
+        brief(&store, Scope::Repo(repo_id), 8, 0, 29.0)
             .unwrap()
             .went_stale
             .len()
@@ -265,14 +265,14 @@ async fn untouched_recall_leaves_access_count_alone() {
         .pop()
         .unwrap();
 
-    recall_with_vector(&store, Some(repo_id), true, &query_vec, 5, 29.0, false).unwrap();
+    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, false).unwrap();
     assert_eq!(
-        store.live_memories(Some(repo_id)).unwrap()[0].access_count,
+        store.live_memories(Scope::Repo(repo_id)).unwrap()[0].access_count,
         0
     );
-    recall_with_vector(&store, Some(repo_id), true, &query_vec, 5, 29.0, true).unwrap();
+    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
     assert_eq!(
-        store.live_memories(Some(repo_id)).unwrap()[0].access_count,
+        store.live_memories(Scope::Repo(repo_id)).unwrap()[0].access_count,
         1
     );
 }
@@ -295,14 +295,14 @@ async fn scoped_brief_caps_globals() {
         remember(&mut store, &embedder, d).await.unwrap();
     }
 
-    let scoped = brief(&store, Some(repo_id), true, 4, 7, 29.0).unwrap();
+    let scoped = brief(&store, Scope::Repo(repo_id), 4, 7, 29.0).unwrap();
     let globals = scoped
         .top
         .iter()
         .filter(|h| global_ids.contains(&h.id))
         .count();
     assert_eq!((scoped.top.len(), globals), (4, 2));
-    let unscoped = brief(&store, None, false, 4, 7, 29.0).unwrap();
+    let unscoped = brief(&store, Scope::Unscoped, 4, 7, 29.0).unwrap();
     assert_eq!(unscoped.top.len(), 3);
 }
 
@@ -317,8 +317,17 @@ async fn brief_for_a_scope_without_rows_still_caps_globals() {
         };
         remember(&mut store, &embedder, d).await.unwrap();
     }
-    assert_eq!(brief(&store, None, true, 8, 7, 29.0).unwrap().top.len(), 2);
-    assert_eq!(brief(&store, None, false, 8, 7, 29.0).unwrap().top.len(), 3);
+    assert_eq!(
+        brief(&store, Scope::Unseen, 8, 7, 29.0).unwrap().top.len(),
+        2
+    );
+    assert_eq!(
+        brief(&store, Scope::Unscoped, 8, 7, 29.0)
+            .unwrap()
+            .top
+            .len(),
+        3
+    );
 }
 
 #[tokio::test]
@@ -349,7 +358,12 @@ async fn scoped_recall_caps_globals_and_honors_noise() {
         .unwrap();
 
     let recall = |scoped: bool| {
-        recall_with_vector(&store, Some(repo_id), scoped, &query_vec, 10, 29.0, false).unwrap()
+        let scope = if scoped {
+            Scope::Repo(repo_id)
+        } else {
+            Scope::Unscoped
+        };
+        recall_with_vector(&store, scope, &query_vec, 10, 29.0, false).unwrap()
     };
     let count_globals = |hits: &[scry_core::memory::MemoryHit]| {
         hits.iter().filter(|h| globals.contains(&h.id)).count()
@@ -360,7 +374,7 @@ async fn scoped_recall_caps_globals_and_honors_noise() {
     for id in &globals[..2] {
         store.memory_feedback(*id, false, Some(repo_id)).unwrap();
     }
-    let hits = recall(false);
+    let hits = recall(true);
     assert_eq!(count_globals(&hits), 2);
     assert!(hits.iter().all(|h| !globals[..2].contains(&h.id)));
 }

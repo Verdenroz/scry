@@ -6,7 +6,7 @@ use crate::config::MemoryConfig;
 use crate::memory::{now_epoch, recall_score};
 use crate::store::{MemoryRow, Store};
 
-const NOISE_SCOPES: i64 = 2;
+const GLOBAL_NOISE_SCOPES: usize = 2;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GcReport {
@@ -35,9 +35,9 @@ pub fn gc(store: &mut Store, config: &MemoryConfig, dry_run: bool) -> Result<GcR
     let now = now_epoch();
     let mut report = GcReport::default();
     let mut ids = Vec::new();
-    let suppressed = store.suppression_scope_counts()?;
+    let suppressed = store.suppression_scopes()?;
     for row in store.archivable_candidates()? {
-        let scopes = suppressed.get(&row.id).copied().unwrap_or(0);
+        let scopes = suppressed.get(&row.id).map_or(&[][..], Vec::as_slice);
         let Some(rule) = matching_rule(&row, scopes, config, now) else {
             continue;
         };
@@ -55,7 +55,7 @@ pub fn gc(store: &mut Store, config: &MemoryConfig, dry_run: bool) -> Result<GcR
     Ok(report)
 }
 
-fn matching_rule(row: &MemoryRow, scopes: i64, config: &MemoryConfig, now: i64) -> Option<Rule> {
+fn matching_rule(row: &MemoryRow, scopes: &[i64], config: &MemoryConfig, now: i64) -> Option<Rule> {
     if row.superseded_by.is_some() {
         return Some(Rule::Superseded);
     }
@@ -73,7 +73,11 @@ fn matching_rule(row: &MemoryRow, scopes: i64, config: &MemoryConfig, now: i64) 
     {
         return Some(Rule::Episode);
     }
-    if scopes >= NOISE_SCOPES && row.helpful_count == 0 {
+    let noisy = match row.repo_id {
+        Some(own) => scopes.contains(&own),
+        None => scopes.len() >= GLOBAL_NOISE_SCOPES,
+    };
+    if noisy && row.helpful_count == 0 {
         return Some(Rule::Noise);
     }
     None
@@ -84,11 +88,11 @@ mod tests {
     use super::*;
     use crate::store::NewMemory;
 
-    fn add(store: &mut Store, kind: &str, seed: f32) -> i64 {
+    fn add_in(store: &mut Store, repo_id: Option<i64>, kind: &str, seed: f32) -> i64 {
         store
             .add_memory(
                 &NewMemory {
-                    repo_id: None,
+                    repo_id,
                     kind: kind.to_string(),
                     content: format!("memory {seed}"),
                     salience: 0.5,
@@ -102,6 +106,10 @@ mod tests {
                 &[],
             )
             .unwrap()
+    }
+
+    fn add(store: &mut Store, kind: &str, seed: f32) -> i64 {
+        add_in(store, None, kind, seed)
     }
 
     fn exec(store: &Store, sql: &str, id: i64) {
@@ -154,15 +162,33 @@ mod tests {
         store.memory_feedback(once, false, Some(1)).unwrap();
         store.memory_feedback(once, false, Some(1)).unwrap();
 
+        let repo = store.upsert_repo("github.com/x/y").unwrap();
+        let other = store.upsert_repo("github.com/x/z").unwrap();
+        let local_noise = add_in(&mut store, Some(repo), "lesson", 1.0);
+        store
+            .memory_feedback(local_noise, false, Some(repo))
+            .unwrap();
+        let local_helped = add_in(&mut store, Some(repo), "lesson", 1.1);
+        store
+            .memory_feedback(local_helped, true, Some(repo))
+            .unwrap();
+        store
+            .memory_feedback(local_helped, false, Some(repo))
+            .unwrap();
+        let elsewhere = add_in(&mut store, Some(repo), "lesson", 1.2);
+        store
+            .memory_feedback(elsewhere, false, Some(other))
+            .unwrap();
+
         let config = MemoryConfig::default();
         let expected = GcReport {
             superseded: 1,
             stale: 1,
             episodes: 1,
-            noise: 1,
+            noise: 2,
         };
         assert_eq!(gc(&mut store, &config, true).unwrap(), expected);
-        assert_eq!(store.archivable_candidates().unwrap().len(), 9);
+        assert_eq!(store.archivable_candidates().unwrap().len(), 12);
 
         assert_eq!(gc(&mut store, &config, false).unwrap(), expected);
         let kept: Vec<i64> = store
@@ -171,7 +197,18 @@ mod tests {
             .into_iter()
             .map(|row| row.id)
             .collect();
-        assert_eq!(kept, vec![new, revived, fresh_stale, helped, once]);
+        assert_eq!(
+            kept,
+            vec![
+                new,
+                revived,
+                fresh_stale,
+                helped,
+                once,
+                local_helped,
+                elsewhere
+            ]
+        );
         assert_eq!(gc(&mut store, &config, false).unwrap().total(), 0);
     }
 }

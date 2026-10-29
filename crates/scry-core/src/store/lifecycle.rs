@@ -118,16 +118,17 @@ impl Store {
         Ok(rows)
     }
 
-    /// Distinct scopes that have suppressed each memory.
-    pub fn suppression_scope_counts(&self) -> Result<HashMap<i64, i64>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT memory_id, count(*) FROM memory_suppressions
-             WHERE repo_id != 0 GROUP BY memory_id",
-        )?;
-        let counts = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<std::result::Result<_, _>>()?;
-        Ok(counts)
+    /// Repo scopes that have suppressed each memory.
+    pub fn suppression_scopes(&self) -> Result<HashMap<i64, Vec<i64>>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT memory_id, repo_id FROM memory_suppressions WHERE repo_id != 0")?;
+        let mut scopes: HashMap<i64, Vec<i64>> = HashMap::new();
+        for pair in stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))? {
+            let (memory_id, repo_id) = pair?;
+            scopes.entry(memory_id).or_default().push(repo_id);
+        }
+        Ok(scopes)
     }
 
     /// Archives memories: the text stays, the vector goes.
@@ -199,7 +200,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{MemoryAnchor, NewMemory};
+    use crate::store::{MemoryAnchor, NewMemory, Scope};
 
     fn memory(repo_id: Option<i64>, seed: f32) -> NewMemory {
         NewMemory {
@@ -305,7 +306,7 @@ mod tests {
         store.archive_memories(&[id]).unwrap();
         assert!(
             store
-                .memory_candidates(Some(repo), &query, 5)
+                .memory_candidates(Scope::Repo(repo), &query, 5)
                 .unwrap()
                 .is_empty()
         );
@@ -314,7 +315,7 @@ mod tests {
         assert_eq!(store.restore_memory(id, &query).unwrap(), "live");
         assert_eq!(
             store
-                .memory_candidates(Some(repo), &query, 5)
+                .memory_candidates(Scope::Repo(repo), &query, 5)
                 .unwrap()
                 .len(),
             1

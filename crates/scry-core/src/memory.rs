@@ -3,7 +3,7 @@
 //! driven by the sync pipeline's file hashes.
 
 use crate::embed::Embedder;
-use crate::store::{MemoryAnchor, MemoryRow, NewMemory, Store};
+use crate::store::{MemoryAnchor, MemoryRow, NewMemory, Scope, Store};
 use crate::{Error, Result};
 
 pub const KINDS: &[&str] = &[
@@ -189,8 +189,7 @@ pub(crate) fn now_epoch() -> i64 {
 /// most [`BRIEF_GLOBAL_MAX`] globals make the list.
 pub fn recall_with_vector(
     store: &Store,
-    repo_id: Option<i64>,
-    scoped: bool,
+    scope: Scope,
     vector: &[f32],
     limit: usize,
     half_life_days: f64,
@@ -198,7 +197,7 @@ pub fn recall_with_vector(
 ) -> Result<Vec<MemoryHit>> {
     let now = now_epoch();
     let mut ranked: Vec<(MemoryHit, bool)> = store
-        .memory_candidates(repo_id, vector, CANDIDATES)?
+        .memory_candidates(scope, vector, CANDIDATES)?
         .into_iter()
         .map(|(row, distance)| {
             let similarity = (1.0 - distance).clamp(0.0, 1.0);
@@ -213,7 +212,7 @@ pub fn recall_with_vector(
         })
         .collect();
     ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
-    let hits = cap_globals(ranked, scoped, limit.max(1));
+    let hits = cap_globals(ranked, scope.is_scoped(), limit.max(1));
     if touch {
         store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
     }
@@ -233,15 +232,14 @@ pub struct Brief {
 /// [`BRIEF_GLOBAL_MAX`] globals make the list.
 pub fn brief(
     store: &Store,
-    repo_id: Option<i64>,
-    scoped: bool,
+    scope: Scope,
     limit: usize,
     stale_days: u32,
     half_life_days: f64,
 ) -> Result<Brief> {
     let now = now_epoch();
     let mut ranked: Vec<(MemoryHit, bool)> = store
-        .live_memories(repo_id)?
+        .live_memories(scope)?
         .into_iter()
         .map(|row| {
             let global = row.repo_id.is_none();
@@ -249,10 +247,10 @@ pub fn brief(
         })
         .collect();
     ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
-    let top = cap_globals(ranked, scoped, limit);
+    let top = cap_globals(ranked, scope.is_scoped(), limit);
     let since = now - i64::from(stale_days) * 86_400;
     let went_stale = store
-        .recently_stale_memories(repo_id, since, BRIEF_STALE_MAX)?
+        .recently_stale_memories(scope, since, BRIEF_STALE_MAX)?
         .into_iter()
         .map(|row| brief_hit(row, now, half_life_days, true))
         .collect();

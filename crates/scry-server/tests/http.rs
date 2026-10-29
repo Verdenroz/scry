@@ -7,9 +7,10 @@ use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
 use scry_core::verify::Verifier;
 use scry_server::api::{
-    BriefResponse, FileUpload, GcResponse, ManifestRequest, MemoryStatsResponse, RecallResponse,
-    RememberResponse, RestoreResponse, SearchRequest, SearchResponse, StaleMemoryDto,
-    StaleResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse, VerifyResponse,
+    BriefResponse, FeedbackResponse, FileUpload, GcResponse, ManifestRequest, MemoryStatsResponse,
+    RecallResponse, RememberResponse, RestoreResponse, SearchRequest, SearchResponse,
+    StaleMemoryDto, StaleResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse,
+    VerifyResponse,
 };
 use scry_server::{AppState, QueryCache, StoreHandle, router};
 
@@ -368,6 +369,33 @@ async fn memory_brief_supersede_and_stats() {
     assert_eq!(stats.sources.len(), 1);
     assert_eq!(stats.sources[0].source, "agent");
     assert_eq!(stats.sources[0].memories, 1);
+}
+
+#[tokio::test]
+async fn feedback_on_a_missing_memory_creates_no_repo() {
+    let base = spawn_server().await;
+    let http = reqwest::Client::new();
+    let response: FeedbackResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/feedback",
+        serde_json::json!({ "id": 999, "helpful": false, "repo_key": "github.com/test/phantom" }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    assert!(!response.updated);
+    let status: StatusResponse = http
+        .get(format!("{base}/v1/status"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status.repos, 0);
 }
 
 async fn memory_stats(http: &reqwest::Client, base: &str) -> MemoryStatsResponse {

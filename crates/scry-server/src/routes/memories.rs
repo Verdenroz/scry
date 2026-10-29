@@ -80,14 +80,10 @@ pub async fn recall(
     let memories = state
         .store
         .call(move |store| {
-            let repo_id = match &request.repo_key {
-                Some(key) => store.repo_id(key)?,
-                None => None,
-            };
+            let scope = store.scope(request.repo_key.as_deref())?;
             recall_with_vector(
                 store,
-                repo_id,
-                request.repo_key.is_some(),
+                scope,
                 &vector,
                 request.limit,
                 half_life,
@@ -117,6 +113,9 @@ pub async fn feedback(
     let updated = state
         .store
         .call(move |store| {
+            if store.memory(request.id)?.is_none() {
+                return Ok(false);
+            }
             let scope = match &request.repo_key {
                 Some(key) => Some(store.upsert_repo(key)?),
                 None => None,
@@ -135,19 +134,8 @@ pub async fn brief(
     let digest = state
         .store
         .call(move |store| {
-            let repo_id = match &request.repo_key {
-                Some(key) => store.repo_id(key)?,
-                None => None,
-            };
-            let scoped = request.repo_key.is_some();
-            build_brief(
-                store,
-                repo_id,
-                scoped,
-                request.limit,
-                request.stale_days,
-                half_life,
-            )
+            let scope = store.scope(request.repo_key.as_deref())?;
+            build_brief(store, scope, request.limit, request.stale_days, half_life)
         })
         .await?;
     Ok(Json(BriefResponse {
