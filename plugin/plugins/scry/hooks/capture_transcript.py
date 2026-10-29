@@ -26,6 +26,11 @@ VALUE_OPTIONS = {
 PROXY_OPTIONS = {"-x", "--proxy"}
 URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s'\"<>)]+", re.IGNORECASE)
 ASSIGNMENT = re.compile(r"^\w+=")
+WRAPPERS = {"xargs", "env", "sudo", "nohup", "timeout", "nice", "time", "command", "exec"}
+WRAPPER_ARG = re.compile(r"^(-|\d+$|\w+=)")
+KEYWORDS = {"for", "while", "if", "then", "do", "else", "{", "!"}
+SHELLS = {"bash", "sh", "zsh"}
+RAW_SEGMENT = re.compile(r"[\n;|&()`]+")
 BARE_HOST = re.compile(r"^(?:localhost|[\w-]+(?:\.[\w-]+)+|\[[0-9a-f:]+\])(?::\d+)?(?:/|$)")
 LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 WEB_OMITTED = "[web content omitted]"
@@ -65,7 +70,11 @@ def command_segments(command: str):
     try:
         tokens = list(lexer)
     except ValueError:
-        tokens = command.split()
+        for part in RAW_SEGMENT.split(command):
+            words = [w.strip("'\"") for w in part.split()]
+            if words:
+                yield words
+        return
     segment, redirected = [], False
     for token in [*tokens, ";"]:
         if set(token) <= set("|&;()"):
@@ -80,12 +89,28 @@ def command_segments(command: str):
             segment.append(token.lstrip("`"))
 
 
+def unwrap(segment):
+    while segment:
+        if os.path.basename(segment[0]) in WRAPPERS:
+            segment = segment[1:]
+            while segment and WRAPPER_ARG.match(segment[0]):
+                segment = segment[1:]
+        elif ASSIGNMENT.match(segment[0]) or segment[0] in KEYWORDS:
+            segment = segment[1:]
+        else:
+            break
+    return segment
+
+
 def commands(command: str):
     for segment in command_segments(command):
-        while segment and ASSIGNMENT.match(segment[0]):
-            segment = segment[1:]
-        if segment:
-            yield os.path.basename(segment[0]), segment[1:]
+        segment = unwrap(segment)
+        if not segment:
+            continue
+        name, args = os.path.basename(segment[0]), segment[1:]
+        yield name, args
+        if name in SHELLS and "-c" in args[:-1]:
+            yield from commands(args[args.index("-c") + 1])
 
 
 def host_of(target: str):

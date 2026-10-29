@@ -157,6 +157,43 @@ class WebTests(unittest.TestCase):
             entry = results_after("Bash", {"command": command})
             self.assertEqual(entry.body, ct.WEB_OMITTED, command)
 
+    def test_wrappers_and_keywords_do_not_hide_the_client(self):
+        for command in (
+            "echo https://x.dev | xargs curl",
+            "env FOO=1 curl https://x.dev",
+            "sudo -E wget https://x.dev",
+            "nohup curl https://x.dev",
+            "timeout 5 curl https://x.dev",
+            "nice -n 5 curl https://x.dev",
+            "time curl https://x.dev",
+            "command curl https://x.dev",
+            "exec curl https://x.dev",
+            "! curl https://x.dev",
+            "for u in a b; do curl https://x.dev/$u; done",
+            "while true; do curl https://x.dev; done",
+            "if curl https://x.dev; then echo ok; fi",
+            "{ curl https://x.dev; }",
+            "true && nohup env curl https://x.dev",
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+
+    def test_shell_dash_c_strings_are_searched(self):
+        for command in (
+            'bash -c "curl https://x.dev"',
+            "sh -c 'echo hi; wget https://x.dev'",
+            'zsh -c "true | curl https://x.dev"',
+            "bash -lc 'x' ; bash -c \"curl https://x.dev\"",
+            'bash -c "curl https://x.dev',
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+
+    def test_unparseable_text_is_segmented_on_separators(self):
+        for command in ("echo 'a; curl https://x.dev", 'echo "a\ncurl https://x.dev', "echo `x|curl https://x.dev"):
+            entry = results_after("Bash", {"command": command})
+            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+
     def test_short_web_flag_is_omitted(self):
         entry = results_after("Bash", {"command": 'scry -w "q"'})
         self.assertEqual(entry.body, ct.WEB_OMITTED)
