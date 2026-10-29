@@ -7,9 +7,9 @@ use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
 use scry_core::verify::Verifier;
 use scry_server::api::{
-    BriefResponse, FileUpload, ManifestRequest, MemoryStatsResponse, RememberResponse,
-    SearchRequest, SearchResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse,
-    VerifyResponse,
+    BriefResponse, FileUpload, GcResponse, ManifestRequest, MemoryStatsResponse, RecallResponse,
+    RememberResponse, RestoreResponse, SearchRequest, SearchResponse, StaleMemoryDto,
+    StaleResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse, VerifyResponse,
 };
 use scry_server::{AppState, QueryCache, StoreHandle, router};
 
@@ -438,4 +438,152 @@ async fn verify_scores_against_the_server_threshold() {
     let bad = verify(&http, &base, "vague evidence").await;
     assert!((bad.score.unwrap() - 0.1).abs() < 1e-9);
     assert_eq!(bad.supported, Some(false));
+}
+
+async fn post_json(
+    http: &reqwest::Client,
+    base: &str,
+    path: &str,
+    body: serde_json::Value,
+) -> reqwest::Response {
+    http.post(format!("{base}{path}"))
+        .bearer_auth(TOKEN)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+}
+
+async fn sync_file(http: &reqwest::Client, base: &str, content: &str) {
+    http.post(format!("{base}/v1/sync"))
+        .bearer_auth(TOKEN)
+        .json(&SyncRequest {
+            repo_key: REPO.to_string(),
+            upserts: vec![upload("src/a.rs", content)],
+            deletes: vec![],
+        })
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+}
+
+async fn stale_list(http: &reqwest::Client, base: &str, files: &[&str]) -> Vec<StaleMemoryDto> {
+    let response: StaleResponse = post_json(
+        http,
+        base,
+        "/v1/memories/stale",
+        serde_json::json!({ "repo_key": REPO, "files": files }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    response.memories
+}
+
+async fn gc(http: &reqwest::Client, base: &str, dry_run: bool) -> GcResponse {
+    post_json(
+        http,
+        base,
+        "/v1/memories/gc",
+        serde_json::json!({ "dry_run": dry_run }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn memory_stale_reaffirm_gc_and_restore() {
+    let base = spawn_server().await;
+    let http = reqwest::Client::new();
+    sync_file(&http, &base, "pub fn a() {}\n").await;
+
+    let remembered: RememberResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/remember",
+        serde_json::json!({
+            "repo_key": REPO, "kind": "lesson", "content": "a is special",
+            "anchors": [{ "relpath": "src/a.rs" }]
+        }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    assert!(stale_list(&http, &base, &[]).await.is_empty());
+
+    let reaffirm = |id: i64| {
+        post_json(
+            &http,
+            &base,
+            "/v1/memories/reaffirm",
+            serde_json::json!({ "id": id, "evidence": "read the new body" }),
+        )
+    };
+    assert_eq!(reaffirm(remembered.id).await.status(), 404);
+
+    sync_file(&http, &base, "pub fn a() { 1; }\n").await;
+    let listed = stale_list(&http, &base, &[]).await;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].relpaths, vec!["src/a.rs".to_string()]);
+    assert_eq!(stale_list(&http, &base, &["src/b.rs"]).await.len(), 0);
+    assert_eq!(stale_list(&http, &base, &["src/a.rs"]).await.len(), 1);
+
+    assert_eq!(reaffirm(remembered.id).await.status(), 200);
+    assert!(stale_list(&http, &base, &[]).await.is_empty());
+
+    let noisy = remembered.id;
+    for _ in 0..2 {
+        post_json(
+            &http,
+            &base,
+            "/v1/memories/feedback",
+            serde_json::json!({ "id": noisy, "helpful": false, "repo_key": REPO }),
+        )
+        .await;
+    }
+    assert_eq!(gc(&http, &base, true).await.noise, 1);
+    assert_eq!(memory_stats(&http, &base).await.sources[0].archived, 0);
+    assert_eq!(gc(&http, &base, false).await.noise, 1);
+    let stats = memory_stats(&http, &base).await;
+    assert_eq!(
+        (stats.sources[0].memories, stats.sources[0].archived),
+        (0, 1)
+    );
+
+    let restored: RestoreResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/restore",
+        serde_json::json!({ "id": noisy }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(restored.status, "live");
+    let again = post_json(
+        &http,
+        &base,
+        "/v1/memories/restore",
+        serde_json::json!({ "id": noisy }),
+    )
+    .await;
+    assert_eq!(again.status(), 404);
+    let recalled: RecallResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/recall",
+        serde_json::json!({ "repo_key": REPO, "query": "a is special" }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(recalled.memories.len(), 1);
 }

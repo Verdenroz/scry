@@ -4,6 +4,7 @@
 
 mod chunks;
 mod files;
+mod lifecycle;
 mod memories;
 
 pub use chunks::{ChunkRow, DenseHit, LexicalHit, NewChunk};
@@ -173,8 +174,8 @@ impl Store {
 /// v3 -> v4: memories gain provenance, a staleness timestamp, and a noise
 /// count.
 /// v4 -> v5: memory vectors gain a scope partition (0 for globals),
-/// per-scope suppressions get a table, and legacy stale rows get a
-/// `stale_at`.
+/// memories gain `helpful_at`, per-scope suppressions get a table, and
+/// legacy stale rows get a `stale_at`.
 fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     let version: String = conn.query_row(
         "SELECT value FROM meta WHERE key = 'schema_version'",
@@ -261,6 +262,7 @@ const MIGRATE_V3_TO_V4: &str = "BEGIN;
 fn migrate_v4_to_v5(dim: usize) -> String {
     format!(
         "BEGIN;
+        ALTER TABLE memories ADD COLUMN helpful_at INTEGER;
         UPDATE memories SET stale_at = unixepoch()
             WHERE status = 'stale' AND stale_at IS NULL;
         CREATE TABLE memory_suppressions (
@@ -361,6 +363,7 @@ mod tests {
                      ALTER TABLE memories DROP COLUMN stale_at;
                      ALTER TABLE memories DROP COLUMN noise_count;
                      DROP TABLE memory_suppressions;
+                     ALTER TABLE memories DROP COLUMN helpful_at;
                      DROP TABLE vec_memories;
                      CREATE VIRTUAL TABLE vec_memories USING vec0(
                          memory_id INTEGER PRIMARY KEY,

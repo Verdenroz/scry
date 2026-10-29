@@ -37,6 +37,9 @@ pub struct MemoryRow {
     pub access_count: i64,
     pub helpful_count: i64,
     pub stale_at: Option<i64>,
+    pub noise_count: i64,
+    pub superseded_by: Option<i64>,
+    pub helpful_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +50,7 @@ pub struct SourceStats {
     pub retrievals: i64,
     pub helpful: i64,
     pub noise: i64,
+    pub archived: i64,
 }
 
 /// Vector partition for a scope; globals share partition 0 because repo
@@ -64,9 +68,9 @@ fn not_suppressed(repo_id: Option<i64>) -> String {
     )
 }
 
-const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at";
+pub(super) const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at, noise_count, superseded_by, helpful_at";
 
-fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
+pub(super) fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
     Ok(MemoryRow {
         id: row.get(0)?,
         repo_id: row.get(1)?,
@@ -78,6 +82,9 @@ fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
         access_count: row.get(7)?,
         helpful_count: row.get(8)?,
         stale_at: row.get(9)?,
+        noise_count: row.get(10)?,
+        superseded_by: row.get(11)?,
+        helpful_at: row.get(12)?,
     })
 }
 
@@ -206,14 +213,15 @@ impl Store {
         Ok(())
     }
 
-    /// A helpful vote lifts the memory's suppression in `scope`; a noise
-    /// vote suppresses it there (`None` is the unscoped context).
+    /// A helpful vote stamps `helpful_at` and lifts the memory's suppression
+    /// in `scope`; a noise vote suppresses it there (`None` is the unscoped
+    /// context).
     pub fn memory_feedback(&self, id: i64, helpful: bool, scope: Option<i64>) -> Result<bool> {
         let partition = scope_partition(scope);
         let changed = if helpful {
             let changed = self.conn.execute(
                 "UPDATE memories SET helpful_count = helpful_count + 1,
-                 last_access = unixepoch() WHERE id = ?1",
+                 last_access = unixepoch(), helpful_at = unixepoch() WHERE id = ?1",
                 [id],
             )?;
             self.conn.execute(
@@ -344,11 +352,18 @@ impl Store {
 
     pub fn memory_source_stats(&self) -> Result<Vec<SourceStats>> {
         let mut stmt = self.conn.prepare(
-            "SELECT source, count(*), count(*) FILTER (WHERE status = 'stale'),
-                    sum(access_count), sum(helpful_count), sum(noise_count)
-             FROM memories
-             WHERE superseded_by IS NULL AND status != 'archived'
-             GROUP BY source ORDER BY source",
+            "SELECT source,
+                    count(*) FILTER (WHERE live),
+                    count(*) FILTER (WHERE live AND status = 'stale'),
+                    coalesce(sum(access_count) FILTER (WHERE live), 0),
+                    coalesce(sum(helpful_count) FILTER (WHERE live), 0),
+                    coalesce(sum(noise_count) FILTER (WHERE live), 0),
+                    count(*) FILTER (WHERE status = 'archived')
+             FROM (SELECT *, superseded_by IS NULL AND status != 'archived' AS live
+                   FROM memories)
+             GROUP BY source
+             HAVING count(*) FILTER (WHERE live OR status = 'archived') > 0
+             ORDER BY source",
         )?;
         let stats = stmt
             .query_map([], |row| {
@@ -359,6 +374,7 @@ impl Store {
                     retrievals: row.get(3)?,
                     helpful: row.get(4)?,
                     noise: row.get(5)?,
+                    archived: row.get(6)?,
                 })
             })?
             .collect::<std::result::Result<_, _>>()?;

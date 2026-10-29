@@ -83,6 +83,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/memories/supersede", post(routes::supersede))
         .route("/v1/memories/stats", get(routes::memory_stats))
         .route("/v1/memories/verify", post(routes::verify))
+        .route("/v1/memories/reaffirm", post(routes::reaffirm))
+        .route("/v1/memories/stale", post(routes::stale))
+        .route("/v1/memories/gc", post(routes::gc))
+        .route("/v1/memories/restore", post(routes::restore))
         .route("/v1/web/search", post(routes::web_search))
         .route("/v1/answer", post(routes::answer))
         .layer(middleware::from_fn_with_state(

@@ -237,6 +237,64 @@ pub struct SourceStatsDto {
     pub retrievals: i64,
     pub helpful: i64,
     pub noise: i64,
+    pub archived: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReaffirmRequest {
+    pub id: i64,
+    pub evidence: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReaffirmResponse {
+    pub id: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StaleRequest {
+    #[serde(default)]
+    pub repo_key: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StaleMemoryDto {
+    pub id: i64,
+    pub kind: String,
+    pub content: String,
+    pub relpaths: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StaleResponse {
+    pub memories: Vec<StaleMemoryDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GcRequest {
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GcResponse {
+    pub superseded: usize,
+    pub stale: usize,
+    pub episodes: usize,
+    pub noise: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RestoreRequest {
+    pub id: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RestoreResponse {
+    pub id: i64,
+    pub status: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

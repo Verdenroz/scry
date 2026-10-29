@@ -179,7 +179,7 @@ fn resolve_anchors(
         .collect()
 }
 
-fn now_epoch() -> i64 {
+pub(crate) fn now_epoch() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
@@ -298,6 +298,9 @@ mod tests {
             access_count: access,
             helpful_count: helpful,
             stale_at: None,
+            noise_count: 0,
+            superseded_by: None,
+            helpful_at: None,
         }
     }
 
