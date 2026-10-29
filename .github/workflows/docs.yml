@@ -21,7 +21,7 @@ jobs:
       # callgrind fallback for PMU-less runners
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
       # install only, pinned to Cargo.lock
-      - uses: Verdenroz/soothfast@80b18d8831521646b65fec79c6df14d6f763c602 # v0.3.1
+      - uses: Verdenroz/soothfast@0ffb7ace91600ce208c76bd0218e5dc4df8c9851 # v0.4.4
         with:
           gate: "false"
           changelog: "false"
