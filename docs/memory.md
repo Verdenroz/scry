@@ -262,6 +262,20 @@ transcript the model saw.
 - `lesson` and `fact` need a quote from a tool result.
 - `decision` and `convention` need a quote from a user prompt or a tool
   result.
+- A tool result is provable only if it came from `Read`, `Grep`, `Glob`,
+  `NotebookRead`, `LSP`, or a Bash command that uses no network client.
+  Results from `Agent`/`Task`, `Skill`, `WebFetch`, `WebSearch`, and every
+  `mcp__*` tool never count, nor does a Bash command that mentions the
+  network anywhere in its text (any segment, wrapper, `bash -c` string,
+  `$(...)`, or backticks): `curl`, `wget`, `http`, `https`, `httpie`,
+  `aria2c`, `nc`, `ncat`, `socat`, `ssh`, `scp`, `rsync`, `ftp`, `sftp`,
+  `lynx`, `w3m`, `scry -w`/`--web`, `gh api`, `git` with
+  `clone|fetch|pull|ls-remote` anywhere after it, `pip`/`pip3`/`npm`/
+  `pnpm`/`yarn`/`cargo`/`uv` followed by `install` or `add`, `-m pip`, or
+  any non-loopback `scheme://` URL (`file://` is local). This over-rejects
+  harmless commands such as `grep curl`, and a loopback `curl` is not
+  proof either. The same rule applies to reinforce, contradict, and
+  reaffirm quotes; user prompts are unaffected.
 - A memory that fails is stored as an `episode` with its anchors dropped,
   so a wrong guess never lands as a fact.
 - Tool results that echo memory or the agent's own writing (edits, writes,
@@ -281,12 +295,62 @@ threshold settings.
 
 ### Compounding
 
-A reinforce claim needs a tool-result quote and runs `scry memory helpful`;
+A reinforce claim needs a provable tool-result quote and runs `scry memory helpful`;
 a contradict claim needs a tool-result or user quote and runs
 `scry memory noise`. Unproven claims are ignored, ids the model was not
-shown (reinforce, contradict, supersedes) are dropped, and each id is
+shown (reinforce, contradict, supersedes) are dropped (stale memories are
+not "shown" for reinforce and contradict; they can only be reaffirmed or
+superseded), and each id is
 marked at most once per session. A new memory may name the one it
 replaces, but only a `lesson`, `fact`, `decision`, or `convention` that
 kept its kind through the proof check can retire it. At `SessionStart` the
 plugin injects `scry memory brief`, so the next session starts from these
 memories and marks them in turn.
+
+### Reaffirming stale memories
+
+When the session edited files in a repo, the worker runs `scry index`
+once and then `scry memory stale --file <path>` for those repo-relative paths, so memories the edits just made stale are
+included, and shows
+the results to the model in a separate block, "stale memories anchored to
+files this session edited". The model may return `reaffirm` claims for
+those ids, each with a tool-result quote that shows the memory still
+holds after the edit. A claim is applied only if the id was in that block,
+the quote passes the same proof check as a `lesson` or `fact`, and
+`scry memory verify` does not judge it `unsupported` (or verification is
+not configured). It then runs `scry memory reaffirm <id> --evidence`
+with the cited quote. The pass log lists `reaffirmed`, `reaffirm_failed`,
+and `reaffirm_unsupported` (rejected by the verifier) ids. Replacing a
+stale memory with a new one through `supersedes` works as before.
+
+A failed or timed-out `scry index` does not abort the pass: it is logged
+as `index_error`, the stale lookup and reaffirms are skipped, new
+memories are written without anchors, and the model call proceeds. A
+nonzero or timed-out `scry memory stale` is logged as `stale_error`.
+
+### Web content
+
+Tool results from `WebFetch`, `WebSearch`, any tool whose name contains
+`web` or `fetch`, and `mcp__*` tools whose name contains `search`,
+`scrape`, `crawl`, `fetch`, `browse` or `web` are rendered as
+`[web content omitted]`, so the model never reads them. So are the
+results of any Bash command that mentions the network by the same word
+list as the proof rule above (`curl`, `wget`, `scry -w`/`--web`,
+`gh api`, `pip install`, and the rest), loopback included: a
+`curl localhost` health check is hidden too. The calls stay visible.
+Other subagent, MCP, and non-matching command results are not omitted
+but still never count as proof (see Proof gating).
+
+Omission is best-effort defense in depth. The guarantee is the proof
+allowlist: web, MCP, subagent, and skill results never count as proof, so
+web text can at most become an `episode`. Content fetched to a file and
+read back later (through `Read` or a later command) is not traced.
+
+### Daily gc
+
+At `SessionStart`, when the server is reachable and
+`~/.cache/scry/gc-stamp` is missing or older than 24 hours, the plugin
+spawns `scry memory gc` detached, with output going to the watch log
+(`SCRY_WATCH_LOG`), and touches the stamp. It never blocks the hook. The
+gc rules and their config are described in the lifecycle section of this
+page.

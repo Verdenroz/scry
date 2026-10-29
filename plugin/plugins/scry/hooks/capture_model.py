@@ -48,8 +48,9 @@ SCHEMA = {
         },
         "reinforce": CLAIMS,
         "contradict": CLAIMS,
+        "reaffirm": CLAIMS,
     },
-    "required": ["memories", "reinforce", "contradict"],
+    "required": ["memories", "reinforce", "contradict", "reaffirm"],
 }
 
 INSTRUCTIONS = """\
@@ -76,6 +77,9 @@ Rules:
 - supersedes: the id of an existing memory this one replaces, else null.
 - reinforce: existing memory ids that this session confirmed. contradict: ids this
   session showed to be wrong or misleading.
+- reaffirm: ids from the stale block whose claim this session showed still holds after
+  the edit, quoting a tool result as above. Leave out any you cannot show. To replace
+  a stale memory instead, use supersedes.
 """
 
 
@@ -88,9 +92,13 @@ def render_context(existing) -> str:
     )
 
 
-def build_prompt(transcript: str, existing) -> str:
+def build_prompt(transcript: str, existing, stale=None) -> str:
+    stale = stale or {}
+    current = {i: m for i, m in existing.items() if i not in stale}
     return (
-        f"{INSTRUCTIONS}\nExisting memories:\n{render_context(existing)}\n\n"
+        f"{INSTRUCTIONS}\nExisting memories:\n{render_context(current)}\n\n"
+        "Stale memories anchored to files this session edited:\n"
+        f"{render_context(stale)}\n\n"
         f"Transcript:\n{transcript}\n"
     )
 

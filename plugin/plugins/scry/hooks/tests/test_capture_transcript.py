@@ -1,8 +1,10 @@
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -38,7 +40,7 @@ class LoadTests(unittest.TestCase):
         }
         self.assertEqual(list(ct.entry_parts(summary)), [])
         self.assertEqual(
-            list(ct.entry_parts(blocks)), [("user", "always use X", "", False)]
+            list(ct.entry_parts(blocks)), [("user", "always use X", "", False, True)]
         )
 
     def test_list_content_tool_result_is_joined(self):
@@ -117,6 +119,147 @@ class EchoTests(unittest.TestCase):
         )
 
 
+class WebTests(unittest.TestCase):
+    def test_web_tool_results_are_omitted_and_never_proof(self):
+        for tool, args in (
+            ("WebFetch", {"url": "https://x.dev"}),
+            ("WebSearch", {"query": "q"}),
+            ("mcp__tavily__tavily_search_web", {}),
+            ("mcp__ref__fetch_docs", {}),
+            ("mcp__fc__scrape", {}),
+            ("mcp__fc__crawl_site", {}),
+            ("mcp__pw__browse", {}),
+            ("Bash", {"command": 'scry --web --answer "q"'}),
+            ("Bash", {"command": 'scry -w "q"'}),
+            ("Bash", {"command": "cd x && curl -s https://x.dev"}),
+            ("Bash", {"command": "wget https://x.dev/a.tgz"}),
+            ("Bash", {"command": "curl -s http://127.0.0.1:7399/health"}),
+            ("Bash", {"command": "echo x | xargs curl"}),
+            ("Bash", {"command": 'bash -c "curl localhost:1"'}),
+        ):
+            entry = results_after(tool, args)
+            self.assertEqual(entry.body, ct.WEB_OMITTED, tool)
+            self.assertTrue(entry.echoed, tool)
+
+    def test_web_tool_calls_stay_visible(self):
+        entries, _ = ct.load(web_transcript(), 0)
+        self.assertIn("WebFetch", entries[0].body)
+        self.assertEqual(entries[1].body, ct.WEB_OMITTED)
+
+    def test_ordinary_commands_stay_visible(self):
+        for command in ("cat curl.sh", "cargo test", 'scry "vec" --repo x'):
+            entry = results_after("Bash", {"command": command})
+            self.assertNotEqual(entry.body, ct.WEB_OMITTED, command)
+
+    def test_other_mcp_tools_stay_visible(self):
+        entry = results_after("mcp__ref__lookup", {})
+        self.assertNotEqual(entry.body, ct.WEB_OMITTED)
+
+    def test_unclosed_bracket_url_does_not_break_loading(self):
+        command = "grep -E 'https://[^ ]+' log.txt"
+        entry = results_after("Bash", {"command": command})
+        self.assertFalse(entry.provable)
+        self.assertTrue(ct.remote_url("https://[^"))
+
+    def test_classifier_errors_omit_and_are_not_provable(self):
+        with mock.patch.object(ct, "mentions_network", side_effect=ValueError):
+            entry = results_after("Bash", {"command": "ls"})
+        self.assertEqual(entry.body, ct.WEB_OMITTED)
+        self.assertFalse(entry.provable)
+
+    def test_large_heredoc_classifies_in_linear_time(self):
+        command = "cat <<EOF\n" + "word " * 50_000 + "\nEOF"
+        start = time.monotonic()
+        self.assertFalse(ct.network_command(command))
+        self.assertLess(time.monotonic() - start, 0.5)
+
+
+class ProvableTests(unittest.TestCase):
+    def test_allowlisted_sources_are_provable(self):
+        for tool, args in (
+            ("Read", {"file_path": "/a"}),
+            ("Grep", {"pattern": "x"}),
+            ("Glob", {"pattern": "*"}),
+            ("NotebookRead", {}),
+            ("LSP", {}),
+            ("Bash", {"command": "cat foo"}),
+            ("Bash", {"command": "cargo build"}),
+            ("Bash", {"command": "cat file:///etc/hosts"}),
+            ("Bash", {"command": "git log --oneline"}),
+        ):
+            self.assertTrue(results_after(tool, args).provable, tool)
+
+    def test_other_tools_are_not_provable(self):
+        for tool in ("Agent", "Task", "Skill", "WebFetch", "mcp__ref__lookup", "Edit"):
+            self.assertFalse(results_after(tool, {}).provable, tool)
+
+    def test_network_commands_are_not_provable(self):
+        for command in (
+            "curl https://x.dev",
+            "cat x | wget https://x.dev",
+            "scry -w q",
+            "scry --web q",
+            "gh api repos/a/b",
+            "http GET example.com",
+            "git clone git@github.com:a/b.git",
+            "git pull",
+            "pip install requests",
+            "cargo install ripgrep",
+            "npm install left-pad",
+            "uv pip install x",
+            "echo https://example.com/x",
+            "curl -s http://localhost:7399/health",
+            "echo x | xargs curl",
+            "env curl https://x.dev",
+            "nohup curl -s localhost:1 &",
+            'bash -c "curl -s localhost:1"',
+            "echo $(wget -qO- localhost:1)",
+            "echo `curl localhost:1`",
+            "for u in a b; do curl $u; done",
+            "git -C d pull",
+            "python -m pip install requests",
+            "python -m pip list",
+            "pnpm add left-pad",
+            "ssh host ls",
+            'curl -s "unbalanced',
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertFalse(entry.provable, command)
+
+    def test_result_without_a_known_call_is_not_provable(self):
+        obj = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
+        ((_, _, _, _, provable),) = ct.entry_parts(obj)
+        self.assertFalse(provable)
+
+
+def web_transcript():
+    handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+    use = {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "w",
+                    "name": "WebFetch",
+                    "input": {"url": "https://x.dev"},
+                }
+            ]
+        },
+    }
+    result = {
+        "type": "user",
+        "message": {
+            "content": [
+                {"type": "tool_result", "tool_use_id": "w", "content": "page text"}
+            ]
+        },
+    }
+    handle.write(json.dumps(use) + "\n" + json.dumps(result) + "\n")
+    handle.close()
+    return handle.name
+
+
 class RenderTests(unittest.TestCase):
     def test_numbered_lines(self):
         entries, _ = ct.load(FIXTURE, 0)
@@ -132,7 +275,7 @@ class RenderTests(unittest.TestCase):
                 "content": [{"type": "tool_result", "content": "a" * 3000 + "END"}]
             },
         }
-        ((_, body, _, _),) = ct.entry_parts(obj)
+        ((_, body, _, _, _),) = ct.entry_parts(obj)
         self.assertEqual(len(body), ct.RESULT_TAIL + 3)
         self.assertTrue(body.startswith("...") and body.endswith("END"))
 

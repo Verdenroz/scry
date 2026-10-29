@@ -1,7 +1,7 @@
 {
   "name": "scry",
   "description": "Self-hosted semantic code search, shared across your devices",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "author": {
     "name": "Verdenroz"
   },

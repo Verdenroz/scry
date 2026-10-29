@@ -69,8 +69,6 @@ def repo_relative(paths, cwd: str) -> set:
 
 
 def write_plan(plan: dict, cwd: str) -> int:
-    if any(m["anchors"] for m in plan["memories"]):
-        capture_scry.index(cwd)
     written = 0
     for memory in plan["memories"]:
         ident = capture_scry.remember(memory, cwd)
@@ -86,39 +84,75 @@ def write_plan(plan: dict, cwd: str) -> int:
     return written
 
 
-def verify_memories(memories, cwd: str):
-    out, scores, errors, downgraded = [], [], [], 0
-    configured = True
-    for memory in memories:
-        if memory["kind"] not in capture_verify.PROOF_KINDS or not configured:
-            out.append(memory)
-            continue
+class Verifier:
+    def __init__(self, cwd: str):
+        self.cwd = cwd
+        self.configured = True
+        self.errors = []
+
+    def check(self, claim: str, source: str):
+        if not self.configured:
+            return "not configured", None
         try:
-            verdict, score = capture_scry.verify(
-                memory["content"], memory["source"], cwd
-            )
+            verdict, score = capture_scry.verify(claim, source, self.cwd)
         except Exception as exc:
-            errors.append(f"{type(exc).__name__}: {exc}")
-            verdict, score = "unsupported", None
-        if verdict == "not configured":
-            configured = False
+            self.errors.append(f"{type(exc).__name__}: {exc}")
+            return "error", None
+        self.configured = verdict != "not configured"
+        return verdict, score
+
+
+def verify_memories(memories, verifier: Verifier):
+    out, scores, downgraded = [], [], 0
+    for memory in memories:
+        if memory["kind"] not in capture_verify.PROOF_KINDS:
             out.append(memory)
             continue
-        scores.append([memory["kind"], score])
-        if verdict == "unsupported":
+        verdict, score = verifier.check(memory["content"], memory["source"])
+        if verdict != "not configured":
+            scores.append([memory["kind"], score])
+        if verdict in ("unsupported", "error"):
             downgraded += 1
             memory = capture_verify.downgrade(memory)
         out.append(memory)
-    record = {"verified": scores, "downgraded": downgraded}
-    if not configured:
-        record["verify"] = "not configured"
-    if errors:
-        record["verify_errors"] = errors
-    return out, record
+    return out, {"verified": scores, "downgraded": downgraded}
+
+
+def reaffirm_memories(claims, verifier: Verifier, cwd: str) -> dict:
+    done, failed, unsupported = [], [], []
+    for claim in claims:
+        verdict, _ = verifier.check(claim["content"], claim["source"])
+        if verdict == "unsupported":
+            unsupported.append(claim["id"])
+            continue
+        try:
+            ok = verdict != "error" and capture_scry.reaffirm(
+                claim["id"], claim["evidence"], cwd
+            )
+        except Exception as exc:
+            verifier.errors.append(f"{type(exc).__name__}: {exc}")
+            ok = False
+        (done if ok else failed).append(claim["id"])
+    return {
+        "reaffirmed": done,
+        "reaffirm_failed": failed,
+        "reaffirm_unsupported": unsupported,
+    }
 
 
 def unmarked(ids, done) -> list:
     return [i for i in dict.fromkeys(ids) if i not in done]
+
+
+def stale_memories(edited, cwd: str):
+    if not edited:
+        return {}, {}
+    if error := capture_scry.index(cwd):
+        return {}, {"index_error": error}
+    try:
+        return capture_scry.stale(sorted(edited), cwd), {}
+    except (RuntimeError, subprocess.TimeoutExpired) as exc:
+        return {}, {"stale_error": str(exc)}
 
 
 def capture(payload: dict) -> dict:
@@ -142,14 +176,19 @@ def capture_range(payload: dict) -> dict:
     existing.update(capture_scry.recall(capture_transcript.first_prompt(entries), cwd))
     text, kept = capture_transcript.render(entries)
     edited = repo_relative(capture_transcript.edited_paths(entries), cwd)
+    stale, lookup = stale_memories(edited, cwd)
     output = capture_model.call(
-        capture_model.build_prompt(text, existing), str(STATE_DIR)
+        capture_model.build_prompt(text, existing, stale), str(STATE_DIR)
     )
-    plan = capture_verify.plan(output, kept, edited, set(existing))
-    plan["memories"], verdicts = verify_memories(plan["memories"], cwd)
+    plan = capture_verify.plan(output, kept, edited, set(existing), stale)
+    if "index_error" in lookup:
+        plan["memories"] = [{**m, "anchors": []} for m in plan["memories"]]
+    verifier = Verifier(cwd)
+    plan["memories"], verdicts = verify_memories(plan["memories"], verifier)
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
     written = write_plan(plan, cwd)
+    reaffirmed = reaffirm_memories(plan["reaffirm"], verifier, cwd)
     save_state(
         state_file,
         {
@@ -165,7 +204,11 @@ def capture_range(payload: dict) -> dict:
         "episodes": sum(m["kind"] == "episode" for m in plan["memories"]),
         "helpful": len(plan["helpful"]),
         "noise": len(plan["noise"]),
+        **lookup,
         **verdicts,
+        **reaffirmed,
+        **({"verify": "not configured"} if not verifier.configured else {}),
+        **({"verify_errors": verifier.errors} if verifier.errors else {}),
     }
 
 
