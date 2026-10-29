@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased (draft vs v0.3.0)
+
+<!-- soothfast:notes -->
+<!-- ### Overview -->
+<!-- What this release means for someone using it. One paragraph. -->
+
+<!-- ### Upgrade notes -->
+<!-- What a consumer has to do. "Nothing" is a useful answer. -->
+<!-- /soothfast:notes -->
+
+### ✨ Features
+
+- memory: Re-anchor a stale memory on reaffirm (#21)
+
+### 🐛 Fixes
+
+- cli: Print usage for --help on subcommands (#20)
+
+### 🔧 Internal
+
+- Bump soothfast to 0.4.4 (#23)
+
+---
+
+### 🔍 API surface
+
+```
+# scry-core
+ADDED    scry_core::memory::reaffirm
+
+# scry-server
+CHANGED  scry_server::api::ReaffirmRequest (signature)
+```
+
+
 ## 0.3.0 - 2026-10-28
 
 <!-- soothfast:notes -->
