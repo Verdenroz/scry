@@ -2,10 +2,12 @@ use anyhow::{Context, Result, anyhow};
 use scry_core::config::ClientConfig;
 use scry_server::api::{
     AnswerRequest, AnswerResponse, BriefRequest, BriefResponse, ErrorResponse, FeedbackRequest,
-    FeedbackResponse, ManifestRequest, ManifestResponse, MemoryStatsResponse, PruneRequest,
-    PruneResponse, RecallRequest, RecallResponse, RememberRequest, RememberResponse, SearchRequest,
-    SearchResponse, StatusResponse, SupersedeRequest, SupersedeResponse, SyncRequest, SyncResponse,
-    VerifyRequest, VerifyResponse, WebSearchRequest, WebSearchResponse,
+    FeedbackResponse, GcRequest, GcResponse, ManifestRequest, ManifestResponse,
+    MemoryStatsResponse, PruneRequest, PruneResponse, ReaffirmRequest, ReaffirmResponse,
+    RecallRequest, RecallResponse, RememberRequest, RememberResponse, RestoreRequest,
+    RestoreResponse, SearchRequest, SearchResponse, StaleRequest, StaleResponse, StatusResponse,
+    SupersedeRequest, SupersedeResponse, SyncRequest, SyncResponse, VerifyRequest, VerifyResponse,
+    WebSearchRequest, WebSearchResponse,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -104,6 +106,22 @@ impl ApiClient {
 
     pub async fn supersede(&self, request: &SupersedeRequest) -> Result<SupersedeResponse> {
         self.post("/v1/memories/supersede", request).await
+    }
+
+    pub async fn reaffirm(&self, request: &ReaffirmRequest) -> Result<ReaffirmResponse> {
+        self.post("/v1/memories/reaffirm", request).await
+    }
+
+    pub async fn stale(&self, request: &StaleRequest) -> Result<StaleResponse> {
+        self.post("/v1/memories/stale", request).await
+    }
+
+    pub async fn gc(&self, request: &GcRequest) -> Result<GcResponse> {
+        self.post("/v1/memories/gc", request).await
+    }
+
+    pub async fn restore(&self, request: &RestoreRequest) -> Result<RestoreResponse> {
+        self.post("/v1/memories/restore", request).await
     }
 
     pub async fn verify(&self, request: &VerifyRequest) -> Result<VerifyResponse> {
