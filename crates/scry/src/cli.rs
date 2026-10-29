@@ -109,7 +109,7 @@ pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
 }
 
 const SUBCOMMANDS: &[&str] = &[
-    "serve", "index", "watch", "status", "eval", "remember", "recall", "memory", "repo",
+    "serve", "index", "watch", "status", "eval", "remember", "recall", "memory", "repo", "work",
 ];
 
 /// True when a known subcommand was asked for help. Flags after `--` are
@@ -206,6 +206,7 @@ mod tests {
         assert!(wants_help(&strings(&["--help"])));
         assert!(wants_help(&strings(&["memory", "gc", "--help"])));
         assert!(wants_help(&strings(&["serve", "-h"])));
+        assert!(wants_help(&strings(&["work", "add", "--help"])));
         assert!(!wants_help(&strings(&[
             "remember",
             "--",
