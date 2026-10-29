@@ -564,6 +564,43 @@ async fn gc(http: &reqwest::Client, base: &str, dry_run: bool) -> GcResponse {
 }
 
 #[tokio::test]
+async fn reaffirm_with_anchors_requires_them_indexed() {
+    let base = spawn_server().await;
+    let http = reqwest::Client::new();
+    sync_file(&http, &base, "pub fn a() {}\n").await;
+    let remembered: RememberResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/remember",
+        serde_json::json!({
+            "repo_key": REPO, "kind": "lesson", "content": "a is special",
+            "anchors": [{ "relpath": "src/a.rs" }]
+        }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    sync_file(&http, &base, "pub fn a() { 1; }\n").await;
+
+    let reaffirm = |relpath: &str| {
+        post_json(
+            &http,
+            &base,
+            "/v1/memories/reaffirm",
+            serde_json::json!({
+                "id": remembered.id, "evidence": "moved",
+                "anchors": [{ "relpath": relpath, "start_line": 1, "end_line": 1 }]
+            }),
+        )
+    };
+    assert_eq!(reaffirm("src/missing.rs").await.status(), 404);
+    assert_eq!(stale_list(&http, &base, &[]).await.len(), 1);
+    assert_eq!(reaffirm("src/a.rs").await.status(), 200);
+    assert!(stale_list(&http, &base, &[]).await.is_empty());
+}
+
+#[tokio::test]
 async fn memory_stale_reaffirm_gc_and_restore() {
     let base = spawn_server().await;
     let http = reqwest::Client::new();

@@ -142,6 +142,16 @@ pub fn remember_with_embedding(
     Ok((id, salience, surprise))
 }
 
+/// Marks a stale memory live again. Non-empty `anchors` replace its
+/// existing ones, which re-points a memory whose anchored file is gone.
+pub fn reaffirm(store: &mut Store, id: i64, evidence: &str, anchors: &[AnchorSpec]) -> Result<()> {
+    let memory = store
+        .memory(id)?
+        .ok_or_else(|| Error::Config(format!("no memory #{id}")))?;
+    let anchors = resolve_anchors(store, memory.repo_id, anchors)?;
+    store.reaffirm_memory(id, evidence, &anchors)
+}
+
 fn resolve_anchors(
     store: &Store,
     repo_id: Option<i64>,

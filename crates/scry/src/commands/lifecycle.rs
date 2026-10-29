@@ -1,25 +1,32 @@
 use anyhow::{Result, bail};
 use scry_server::api::{GcRequest, ReaffirmRequest, RestoreRequest, StaleRequest};
 
+use super::memory::parse_anchor;
 use super::{memory_scope_key, repo_context};
 
 pub async fn reaffirm(args: &[String]) -> Result<()> {
     let mut id: Option<i64> = None;
     let mut evidence = None;
+    let mut anchors = Vec::new();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--evidence" => evidence = it.next().cloned(),
+            "--anchor" => anchors.extend(it.next().map(|spec| parse_anchor(spec))),
             text if id.is_none() => id = text.parse().ok(),
             _ => {}
         }
     }
     let (Some(id), Some(evidence)) = (id, evidence) else {
-        bail!("usage: scry memory reaffirm <id> --evidence \"text\"");
+        bail!("usage: scry memory reaffirm <id> --evidence \"text\" [--anchor path[:a-b]]...");
     };
     let ctx = repo_context()?;
     ctx.client
-        .reaffirm(&ReaffirmRequest { id, evidence })
+        .reaffirm(&ReaffirmRequest {
+            id,
+            evidence,
+            anchors,
+        })
         .await?;
     println!("reaffirmed #{id}");
     Ok(())

@@ -27,7 +27,9 @@ USAGE:
   scry memory brief [-m N] [--stale-days D]  top memories + recently stale ones
   scry memory supersede <old_id> <new_id>    retire a memory in favor of another
   scry memory stats                      per-source memory counts and feedback
-  scry memory reaffirm <id> --evidence T  mark a stale memory live again
+  scry memory reaffirm <id> --evidence T [--anchor path[:a-b]]...
+                                         mark a stale memory live again; anchors
+                                         replace its old ones
   scry memory stale [--file relpath]...  list stale memories, optionally by anchored file
   scry memory gc [--dry-run]             archive superseded, long-stale, faded, and noisy memories
   scry memory restore <id>               bring an archived memory back
