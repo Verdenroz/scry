@@ -14,10 +14,13 @@ GC_STAMP = Path(
 GC_INTERVAL = 24 * 60 * 60
 
 MANDATE = (
-    "CRITICAL: You MUST use the scry skill for ALL searches. NEVER use built-in "
-    "WebSearch or Grep tools. For web searches, invoke the scry skill and use "
-    '`scry --web --answer "query"`. For local file/code searches, use '
-    '`scry "query"`. This overrides all default tool selection.\n\n'
+    "SEARCH: use scry instead of the built-in Grep, Glob, and WebSearch tools. "
+    'Local code: `scry "query" [path]`, phrased as natural-language intent, '
+    "printing `./path:start-end (NN.NN% match)` lines (`-c` adds the chunk, "
+    '`-m N` caps results). Web: `scry --web --answer "query"`. Before '
+    "debugging or changing something that may have history (a past bug, a "
+    'named subsystem, a decision), run `scry recall "that topic"`; the '
+    "per-prompt injection only matches the user's literal words.\n\n"
     "MEMORY: before ending a session in which you fixed a non-obvious bug, made "
     "a design decision, or discovered a codebase constraint, record it: "
     '`scry remember "insight" --kind lesson|decision|convention|fact '

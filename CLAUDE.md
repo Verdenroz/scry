@@ -83,7 +83,7 @@ way.
 **mgrep parity is a contract.** The CLI's search path must keep tolerant
 parsing (unknown flags skipped, excess positionals ignored - agents invent
 flags) and the `./path:start-end (NN.NN% match)` output format; the
-Claude Code plugin's skill and hooks depend on both.
+Claude Code plugin's hooks and agents following them depend on both.
 
 **Plugin releases are version-pinned.** Editing `plugin/` does nothing for
 installed copies until the version is bumped in BOTH

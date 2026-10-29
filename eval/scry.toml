@@ -238,7 +238,7 @@ expect = ["plugin/plugins/scry/hooks/scry_recall.py"]
 
 [[case]]
 query = "instructions telling the agent to use scry instead of grep"
-expect = ["plugin/plugins/scry/skills/scry/SKILL.md"]
+expect = ["plugin/plugins/scry/hooks/scry_watch.py"]
 
 # path scoped
 
