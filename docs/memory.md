@@ -326,23 +326,20 @@ stale memory with a new one through `supersedes` works as before.
 A failed or timed-out `scry index` does not abort the pass: it is logged
 as `index_error`, the stale lookup and reaffirms are skipped, new
 memories are written without anchors, and the model call proceeds. A
-nonzero `scry memory stale` is logged as `stale_error`.
+nonzero or timed-out `scry memory stale` is logged as `stale_error`.
 
 ### Web content
 
 Tool results from `WebFetch`, `WebSearch`, any tool whose name contains
-`web` or `fetch`, and Bash commands running `scry -w`/`--web`, `curl`, or
-`wget` are rendered as `[web content omitted]`, so the model never reads
-them. The calls stay visible. `curl` and `wget` match only as a command
-word (at the start or after `|`, `;`, `&&`, `||`, `$(`, a wrapper such as
-`xargs`, `env`, `sudo`, `nohup`, `timeout`, `nice`, `time`, `command`,
-`exec` or `!`, a shell keyword such as `for`, `while`, `if`, `then`, `do`,
-`else` or `{`, or inside a `bash -c`/`sh -c`/`zsh -c` string), and values
-of `-o`, `-d`, `-H` and their long forms are never read as hosts. They
-render normally only when every target and any `--proxy`/`-x` value is a
-loopback address (`localhost`, `127.0.0.1`, `[::1]`, `0.0.0.0`). Other
-subagent, MCP, and network-command results are not omitted but still never
-count as proof (see Proof gating).
+`web` or `fetch`, and `mcp__*` tools whose name contains `search`,
+`scrape`, `crawl`, `fetch`, `browse` or `web` are rendered as
+`[web content omitted]`, so the model never reads them. So are the
+results of any Bash command that mentions the network by the same word
+list as the proof rule above (`curl`, `wget`, `scry -w`/`--web`,
+`gh api`, `pip install`, and the rest), loopback included: a
+`curl localhost` health check is hidden too. The calls stay visible.
+Other subagent, MCP, and non-matching command results are not omitted
+but still never count as proof (see Proof gating).
 
 Omission is best-effort defense in depth. The guarantee is the proof
 allowlist: web, MCP, subagent, and skill results never count as proof, so

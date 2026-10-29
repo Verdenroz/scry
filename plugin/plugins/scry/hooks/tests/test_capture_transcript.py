@@ -1,8 +1,10 @@
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -124,9 +126,16 @@ class WebTests(unittest.TestCase):
             ("WebSearch", {"query": "q"}),
             ("mcp__tavily__tavily_search_web", {}),
             ("mcp__ref__fetch_docs", {}),
+            ("mcp__fc__scrape", {}),
+            ("mcp__fc__crawl_site", {}),
+            ("mcp__pw__browse", {}),
             ("Bash", {"command": 'scry --web --answer "q"'}),
+            ("Bash", {"command": 'scry -w "q"'}),
             ("Bash", {"command": "cd x && curl -s https://x.dev"}),
             ("Bash", {"command": "wget https://x.dev/a.tgz"}),
+            ("Bash", {"command": "curl -s http://127.0.0.1:7399/health"}),
+            ("Bash", {"command": "echo x | xargs curl"}),
+            ("Bash", {"command": 'bash -c "curl localhost:1"'}),
         ):
             entry = results_after(tool, args)
             self.assertEqual(entry.body, ct.WEB_OMITTED, tool)
@@ -137,107 +146,32 @@ class WebTests(unittest.TestCase):
         self.assertIn("WebFetch", entries[0].body)
         self.assertEqual(entries[1].body, ct.WEB_OMITTED)
 
-    def test_loopback_http_calls_stay_visible(self):
-        for command in (
-            "curl -s http://127.0.0.1:7399/health",
-            "curl localhost:12434/v1/models",
-            "curl -s 'http://[::1]:7345/health' | jq .",
-            "wget -qO- http://0.0.0.0:8000/ http://localhost/x",
-        ):
+    def test_ordinary_commands_stay_visible(self):
+        for command in ("cat curl.sh", "cargo test", 'scry "vec" --repo x'):
             entry = results_after("Bash", {"command": command})
             self.assertNotEqual(entry.body, ct.WEB_OMITTED, command)
 
-    def test_mixed_or_unparseable_http_calls_are_omitted(self):
-        for command in (
-            "curl http://localhost:1/a https://x.dev/b",
-            "curl https://localhost.evil.dev/x",
-            "curl -s \"unbalanced",
-            "curl",
-        ):
-            entry = results_after("Bash", {"command": command})
-            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+    def test_other_mcp_tools_stay_visible(self):
+        entry = results_after("mcp__ref__lookup", {})
+        self.assertNotEqual(entry.body, ct.WEB_OMITTED)
 
-    def test_wrappers_and_keywords_do_not_hide_the_client(self):
-        for command in (
-            "echo https://x.dev | xargs curl",
-            "env FOO=1 curl https://x.dev",
-            "sudo -E wget https://x.dev",
-            "nohup curl https://x.dev",
-            "timeout 5 curl https://x.dev",
-            "nice -n 5 curl https://x.dev",
-            "time curl https://x.dev",
-            "command curl https://x.dev",
-            "exec curl https://x.dev",
-            "! curl https://x.dev",
-            "for u in a b; do curl https://x.dev/$u; done",
-            "while true; do curl https://x.dev; done",
-            "if curl https://x.dev; then echo ok; fi",
-            "{ curl https://x.dev; }",
-            "true && nohup env curl https://x.dev",
-        ):
-            entry = results_after("Bash", {"command": command})
-            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
+    def test_unclosed_bracket_url_does_not_break_loading(self):
+        command = "grep -E 'https://[^ ]+' log.txt"
+        entry = results_after("Bash", {"command": command})
+        self.assertFalse(entry.provable)
+        self.assertTrue(ct.remote_url("https://[^"))
 
-    def test_shell_dash_c_strings_are_searched(self):
-        for command in (
-            'bash -c "curl https://x.dev"',
-            "sh -c 'echo hi; wget https://x.dev'",
-            'zsh -c "true | curl https://x.dev"',
-            "bash -lc 'x' ; bash -c \"curl https://x.dev\"",
-            'bash -c "curl https://x.dev',
-        ):
-            entry = results_after("Bash", {"command": command})
-            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
-
-    def test_unparseable_text_is_segmented_on_separators(self):
-        for command in ("echo 'a; curl https://x.dev", 'echo "a\ncurl https://x.dev', "echo `x|curl https://x.dev"):
-            entry = results_after("Bash", {"command": command})
-            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
-
-    def test_short_web_flag_is_omitted(self):
-        entry = results_after("Bash", {"command": 'scry -w "q"'})
+    def test_classifier_errors_omit_and_are_not_provable(self):
+        with mock.patch.object(ct, "mentions_network", side_effect=ValueError):
+            entry = results_after("Bash", {"command": "ls"})
         self.assertEqual(entry.body, ct.WEB_OMITTED)
+        self.assertFalse(entry.provable)
 
-    def test_every_target_must_be_loopback(self):
-        entry = results_after("Bash", {"command": "curl http://localhost/ example.com/page"})
-        self.assertEqual(entry.body, ct.WEB_OMITTED)
-
-    def test_remote_proxy_is_omitted(self):
-        for command in (
-            "curl --proxy evil.com:8080 http://localhost/",
-            "curl -x evil.com:8080 http://localhost/",
-            "curl --proxy=evil.com:8080 http://localhost/",
-        ):
-            entry = results_after("Bash", {"command": command})
-            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
-
-    def test_client_name_as_argument_is_not_a_call(self):
-        for command in ("grep -rn curl src/", "cat curl.sh", "echo wget"):
-            entry = results_after("Bash", {"command": command})
-            self.assertNotEqual(entry.body, ct.WEB_OMITTED, command)
-
-    def test_client_after_a_separator_is_a_call(self):
-        for command in (
-            "echo hi | curl https://x.dev",
-            "true; wget https://x.dev",
-            "true || curl https://x.dev",
-            "echo $(curl https://x.dev)",
-        ):
-            entry = results_after("Bash", {"command": command})
-            self.assertEqual(entry.body, ct.WEB_OMITTED, command)
-
-    def test_option_values_are_never_hosts(self):
-        for command in (
-            "curl localhost:7399/health -o out.json",
-            "curl localhost:7399/x -H 'Accept: a.b.c' -d @body.json",
-            "curl --output out.json --data x.dev localhost:1/",
-        ):
-            entry = results_after("Bash", {"command": command})
-            self.assertNotEqual(entry.body, ct.WEB_OMITTED, command)
-
-    def test_local_scry_search_is_not_web(self):
-        entry = results_after("Bash", {"command": 'scry "vec" --repo x'})
-        self.assertEqual(entry.body, "[lesson #12] echoed")
+    def test_large_heredoc_classifies_in_linear_time(self):
+        command = "cat <<EOF\n" + "word " * 50_000 + "\nEOF"
+        start = time.monotonic()
+        self.assertFalse(ct.network_command(command))
+        self.assertLess(time.monotonic() - start, 0.5)
 
 
 class ProvableTests(unittest.TestCase):

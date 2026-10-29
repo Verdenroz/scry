@@ -1,7 +1,5 @@
 import json
-import os
 import re
-import shlex
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -12,7 +10,6 @@ RENDER_CAP = 120_000
 EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 MEMORY_CMD = re.compile(r"\bscry\s+(recall|remember|memory)\b")
 PROVABLE_TOOLS = {"Read", "Grep", "Glob", "NotebookRead", "LSP"}
-HTTP_CLIENTS = {"curl", "wget"}
 NETWORK_PROGRAMS = {
     "curl", "wget", "http", "https", "httpie", "aria2c", "nc", "ncat", "socat",
     "ssh", "scp", "rsync", "ftp", "sftp", "lynx", "w3m",
@@ -20,19 +17,9 @@ NETWORK_PROGRAMS = {
 GIT_REMOTE = {"clone", "fetch", "pull", "ls-remote"}
 INSTALLERS = {"pip", "pip3", "npm", "pnpm", "yarn", "cargo", "uv"}
 WORDS = re.compile(r"[^\s;|&()<>`'\"${}]+")
-VALUE_OPTIONS = {
-    "-o", "--output", "-d", "--data", "--data-raw", "--data-binary", "-H", "--header",
-}
-PROXY_OPTIONS = {"-x", "--proxy"}
 URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s'\"<>)]+", re.IGNORECASE)
-ASSIGNMENT = re.compile(r"^\w+=")
-WRAPPERS = {"xargs", "env", "sudo", "nohup", "timeout", "nice", "time", "command", "exec"}
-WRAPPER_ARG = re.compile(r"^(-|\d+$|\w+=)")
-KEYWORDS = {"for", "while", "if", "then", "do", "else", "{", "!"}
-SHELLS = {"bash", "sh", "zsh"}
-RAW_SEGMENT = re.compile(r"[\n;|&()`]+")
-BARE_HOST = re.compile(r"^(?:localhost|[\w-]+(?:\.[\w-]+)+|\[[0-9a-f:]+\])(?::\d+)?(?:/|$)")
 LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+MCP_WEB_WORDS = ("search", "scrape", "crawl", "fetch", "browse", "web")
 WEB_OMITTED = "[web content omitted]"
 INJECTED = re.compile(r"^\[(\w+) #(\d+)\](?: \([^)]*\))*\s*(.*)$", re.MULTILINE)
 
@@ -64,90 +51,11 @@ def echoes_memory(name: str, args: dict) -> bool:
     return name in EDIT_TOOLS or bool(MEMORY_CMD.search(args.get("command") or ""))
 
 
-def command_segments(command: str):
-    lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError:
-        for part in RAW_SEGMENT.split(command):
-            words = [w.strip("'\"") for w in part.split()]
-            if words:
-                yield words
-        return
-    segment, redirected = [], False
-    for token in [*tokens, ";"]:
-        if set(token) <= set("|&;()"):
-            if segment:
-                yield segment
-            segment = []
-        elif set(token) <= set("<>"):
-            redirected = True
-        elif redirected:
-            redirected = False
-        else:
-            segment.append(token.lstrip("`"))
-
-
-def unwrap(segment):
-    while segment:
-        if os.path.basename(segment[0]) in WRAPPERS:
-            segment = segment[1:]
-            while segment and WRAPPER_ARG.match(segment[0]):
-                segment = segment[1:]
-        elif ASSIGNMENT.match(segment[0]) or segment[0] in KEYWORDS:
-            segment = segment[1:]
-        else:
-            break
-    return segment
-
-
-def commands(command: str):
-    for segment in command_segments(command):
-        segment = unwrap(segment)
-        if not segment:
-            continue
-        name, args = os.path.basename(segment[0]), segment[1:]
-        yield name, args
-        if name in SHELLS and "-c" in args[:-1]:
-            yield from commands(args[args.index("-c") + 1])
-
-
-def host_of(target: str):
-    return urlsplit(target if "://" in target else f"//{target}").hostname
-
-
-def http_targets(args) -> list:
-    targets, tokens = [], iter(args)
-    for token in tokens:
-        if token in VALUE_OPTIONS:
-            next(tokens, None)
-        elif token in PROXY_OPTIONS:
-            targets.append(next(tokens, ""))
-        elif token.startswith("--proxy="):
-            targets.append(token.removeprefix("--proxy="))
-        elif "://" in token or BARE_HOST.match(token):
-            targets.append(token)
-    return targets
-
-
-def loopback_only(args) -> bool:
-    hosts = [host_of(t) for t in http_targets(args)]
-    return bool(hosts) and all(h in LOOPBACK for h in hosts)
-
-
-def web_command(command: str) -> bool:
-    return any(
-        (name == "scry" and {"-w", "--web"} & set(args))
-        or (name in HTTP_CLIENTS and not loopback_only(args))
-        for name, args in commands(command)
-    )
-
-
 def mentions_network(command: str) -> bool:
     words = [w.rsplit("/", 1)[-1] for w in WORDS.findall(command)]
-    for i, word in enumerate(words):
-        later = set(words[i + 1 :])
+    later = set()
+    for i in range(len(words) - 1, -1, -1):
+        word = words[i]
         if (
             word in NETWORK_PROGRAMS
             or (word == "scry" and {"-w", "--web"} & later)
@@ -157,11 +65,15 @@ def mentions_network(command: str) -> bool:
             or (word == "pip" and words[i - 1 : i] == ["-m"])
         ):
             return True
+        later.add(word)
     return False
 
 
 def remote_url(url: str) -> bool:
-    host = host_of(url)
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return True
     return host is not None and host not in LOOPBACK
 
 
@@ -171,7 +83,11 @@ def network_command(command: str) -> bool:
 
 def fetches_web(name: str, args: dict) -> bool:
     lowered = (name or "").lower()
-    return "web" in lowered or "fetch" in lowered or web_command(args.get("command") or "")
+    if name == "Bash":
+        return mentions_network(args.get("command") or "")
+    if lowered.startswith("mcp__"):
+        return any(word in lowered for word in MCP_WEB_WORDS)
+    return "web" in lowered or "fetch" in lowered
 
 
 def provable_source(name: str, args: dict) -> bool:
@@ -230,7 +146,14 @@ def read_lines(path: str):
                 yield {}
 
 
-def calls_matching(obj, predicate) -> set:
+def safely(predicate, name, args, on_error: bool) -> bool:
+    try:
+        return predicate(name, args)
+    except Exception:
+        return on_error
+
+
+def calls_matching(obj, predicate, on_error: bool) -> set:
     content = (obj.get("message") or {}).get("content")
     if obj.get("type") != "assistant" or not isinstance(content, list):
         return set()
@@ -238,7 +161,7 @@ def calls_matching(obj, predicate) -> set:
         block.get("id")
         for block in content
         if block.get("type") == "tool_use"
-        and predicate(block.get("name"), block.get("input") or {})
+        and safely(predicate, block.get("name"), block.get("input") or {}, on_error)
     }
 
 
@@ -254,9 +177,9 @@ def load(path: str, offset: int):
         total = line_no
         if obj.get("isSidechain"):
             continue
-        echoing |= calls_matching(obj, echoes_memory)
-        web |= calls_matching(obj, fetches_web)
-        provable |= calls_matching(obj, provable_source)
+        echoing |= calls_matching(obj, echoes_memory, True)
+        web |= calls_matching(obj, fetches_web, True)
+        provable |= calls_matching(obj, provable_source, False)
         if total <= offset:
             continue
         for parts in entry_parts(obj, echoing, web, provable):
