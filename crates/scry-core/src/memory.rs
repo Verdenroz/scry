@@ -15,11 +15,15 @@ pub const KINDS: &[&str] = &[
     "episode",
 ];
 
+pub const SOURCES: &[&str] = &["agent", "capture"];
+
 const SURPRISE_WEIGHT: f64 = 0.25;
 const COST_WEIGHT: f64 = 0.35;
 const EXPLICIT_WEIGHT: f64 = 0.4;
 const STALE_FACTOR: f64 = 0.5;
 const CANDIDATES: usize = 40;
+const BRIEF_STALE_MAX: usize = 5;
+const BRIEF_GLOBAL_MAX: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct MemoryDraft {
@@ -30,6 +34,8 @@ pub struct MemoryDraft {
     pub pain: Option<f64>,
     /// Session cost signal 0-10 (retries, time burned) from the writer.
     pub cost: Option<f64>,
+    pub source: String,
+    pub evidence: Option<String>,
     pub anchors: Vec<AnchorSpec>,
 }
 
@@ -73,12 +79,20 @@ pub fn recall_score(similarity: f64, row: &MemoryRow, now_epoch: i64, half_life_
 }
 
 pub fn validate_kind(kind: &str) -> Result<()> {
-    if KINDS.contains(&kind) {
+    validate_in(kind, KINDS, "kind")
+}
+
+pub fn validate_source(source: &str) -> Result<()> {
+    validate_in(source, SOURCES, "source")
+}
+
+fn validate_in(value: &str, allowed: &[&str], label: &str) -> Result<()> {
+    if allowed.contains(&value) {
         return Ok(());
     }
     Err(Error::Config(format!(
-        "unknown memory kind {kind:?}; expected one of {}",
-        KINDS.join(", ")
+        "unknown memory {label} {value:?}; expected one of {}",
+        allowed.join(", ")
     )))
 }
 
@@ -88,6 +102,7 @@ pub async fn remember(
     draft: MemoryDraft,
 ) -> Result<(i64, f64, f64)> {
     validate_kind(&draft.kind)?;
+    validate_source(&draft.source)?;
     let embedding = embedder
         .embed(&[embed_text(&draft.kind, &draft.content)])
         .await?
@@ -118,6 +133,8 @@ pub fn remember_with_embedding(
             surprise,
             cost,
             explicit_weight: explicit,
+            source: draft.source,
+            evidence: draft.evidence,
             embedding,
         },
         &anchors,
@@ -162,16 +179,21 @@ fn resolve_anchors(
         .collect()
 }
 
+fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
 pub fn recall_with_vector(
     store: &Store,
     repo_id: Option<i64>,
     vector: &[f32],
     limit: usize,
     half_life_days: f64,
+    touch: bool,
 ) -> Result<Vec<MemoryHit>> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
+    let now = now_epoch();
     let mut hits: Vec<MemoryHit> = store
         .memory_candidates(repo_id, vector, CANDIDATES)?
         .into_iter()
@@ -188,8 +210,68 @@ pub fn recall_with_vector(
         .collect();
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     hits.truncate(limit.max(1));
-    store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
+    if touch {
+        store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
+    }
     Ok(hits)
+}
+
+#[derive(Debug, Clone)]
+pub struct Brief {
+    pub top: Vec<MemoryHit>,
+    pub went_stale: Vec<MemoryHit>,
+}
+
+/// Query-less digest of a scope: best live memories by recall score with
+/// similarity fixed at 1.0, plus memories that went stale within
+/// `stale_days`. Read-only, so briefing never refreshes recency. In a
+/// scoped brief (a scope key was given, even one with no rows yet) at most
+/// [`BRIEF_GLOBAL_MAX`] globals make the list.
+pub fn brief(
+    store: &Store,
+    repo_id: Option<i64>,
+    scoped: bool,
+    limit: usize,
+    stale_days: u32,
+    half_life_days: f64,
+) -> Result<Brief> {
+    let now = now_epoch();
+    let mut ranked: Vec<(MemoryHit, bool)> = store
+        .live_memories(repo_id)?
+        .into_iter()
+        .map(|row| {
+            let global = row.repo_id.is_none();
+            (brief_hit(row, now, half_life_days, false), global)
+        })
+        .collect();
+    ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    let mut globals = 0;
+    let top = ranked
+        .into_iter()
+        .filter(|(_, global)| {
+            globals += usize::from(*global);
+            !scoped || !*global || globals <= BRIEF_GLOBAL_MAX
+        })
+        .map(|(hit, _)| hit)
+        .take(limit)
+        .collect();
+    let since = now - i64::from(stale_days) * 86_400;
+    let went_stale = store
+        .recently_stale_memories(repo_id, since, BRIEF_STALE_MAX)?
+        .into_iter()
+        .map(|row| brief_hit(row, now, half_life_days, true))
+        .collect();
+    Ok(Brief { top, went_stale })
+}
+
+fn brief_hit(row: MemoryRow, now: i64, half_life_days: f64, stale: bool) -> MemoryHit {
+    MemoryHit {
+        score: recall_score(1.0, &row, now, half_life_days),
+        id: row.id,
+        kind: row.kind,
+        content: row.content,
+        stale,
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +281,7 @@ mod tests {
     fn row(salience: f64, status: &str, helpful: i64, access: i64, last_access: i64) -> MemoryRow {
         MemoryRow {
             id: 1,
+            repo_id: None,
             kind: "lesson".to_string(),
             content: String::new(),
             salience,
@@ -206,6 +289,7 @@ mod tests {
             last_access,
             access_count: access,
             helpful_count: helpful,
+            stale_at: None,
         }
     }
 

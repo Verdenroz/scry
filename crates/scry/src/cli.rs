@@ -20,8 +20,14 @@ USAGE:
   scry status                            show server index counts
   scry eval <cases.toml> [--runs N] [--limit N]  score retrieval against a golden set
   scry remember \"insight\" [--kind K] [--pain N] [--anchor path[:a-b]]
-  scry recall \"query\" [-m N]             recall memories about this codebase
+                                         [--source agent|capture] [--evidence T]
+  scry recall \"query\" [-m N] [--no-touch]  recall memories about this codebase
   scry memory <helpful|noise> <id>       reinforce or demote a memory
+  scry memory brief [-m N] [--stale-days D]  top memories + recently stale ones
+  scry memory supersede <old_id> <new_id>    retire a memory in favor of another
+  scry memory stats                      per-source memory counts and feedback
+  scry memory verify \"claim\" --evidence T  score a claim against evidence
+  scry memory verify --eval <pairs.jsonl>    calibrate the verifier on labelled pairs
 
 SEARCH OPTIONS:
   -m, --max-count <n>   max results (default 10)
@@ -105,7 +111,7 @@ pub async fn dispatch(args: &[String]) -> Result<()> {
         Some("eval") => commands::eval::run(&args[1..]).await,
         Some("remember") => commands::memory::remember(&args[1..]).await,
         Some("recall") => commands::memory::recall(&args[1..]).await,
-        Some("memory") => commands::memory::feedback(&args[1..]).await,
+        Some("memory") => commands::memory::run(&args[1..]).await,
         Some("repo") => commands::repo::run(&args[1..]).await,
         Some("login" | "logout") => {
             println!("scry is self-hosted; auth is a bearer token in the config (SCRY_TOKEN)");

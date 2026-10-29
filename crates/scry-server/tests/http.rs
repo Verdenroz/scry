@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use scry_core::config::Config;
-use scry_core::config::RerankConfig;
+use scry_core::config::{RerankConfig, VerifyConfig};
 use scry_core::embed::HashEmbedder;
 use scry_core::rerank::RerankClient;
 use scry_core::store::Store;
+use scry_core::verify::Verifier;
 use scry_server::api::{
-    FileUpload, ManifestRequest, SearchRequest, SearchResponse, StatusResponse, SyncRequest,
-    SyncResponse,
+    BriefResponse, FileUpload, ManifestRequest, MemoryStatsResponse, RememberResponse,
+    SearchRequest, SearchResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse,
+    VerifyResponse,
 };
 use scry_server::{AppState, QueryCache, StoreHandle, router};
 
@@ -15,10 +17,10 @@ const TOKEN: &str = "test-token";
 const REPO: &str = "github.com/test/http";
 
 async fn spawn_server() -> String {
-    spawn_server_with(None).await
+    spawn_server_with(None, None).await
 }
 
-async fn spawn_server_with(rerank: Option<RerankClient>) -> String {
+async fn spawn_server_with(rerank: Option<RerankClient>, verify: Option<Verifier>) -> String {
     let store = Store::open_in_memory("hash-test", 128).unwrap();
     let config: Config = toml::from_str(&format!(
         "[server]\nauth_token = \"{TOKEN}\"\n[embedding]\ndim = 128\nmodel = \"hash-test\"\n"
@@ -34,6 +36,7 @@ async fn spawn_server_with(rerank: Option<RerankClient>) -> String {
         memory_config: config.memory.clone(),
         tavily: None,
         rerank,
+        verify,
         query_cache: QueryCache::new(8),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -226,7 +229,7 @@ async fn rerank_stage_reorders_and_no_rerank_bypasses_it() {
         "base_url = \"{reranker}\"\nmodel = \"mock\"\ntop_n = 2\nweight = 2.0\n"
     ))
     .unwrap();
-    let base = spawn_server_with(Some(RerankClient::new(config))).await;
+    let base = spawn_server_with(Some(RerankClient::new(config)), None).await;
     let http = reqwest::Client::new();
     http.post(format!("{base}/v1/sync"))
         .bearer_auth(TOKEN)
@@ -256,4 +259,170 @@ async fn rerank_stage_reorders_and_no_rerank_bypasses_it() {
     assert_eq!(reranked.len(), 2);
     assert_eq!(reranked[0], plain[1]);
     assert_eq!(reranked[1], plain[0]);
+}
+
+#[tokio::test]
+async fn memory_brief_supersede_and_stats() {
+    let base = spawn_server().await;
+    let http = reqwest::Client::new();
+    let remember = |body: serde_json::Value| {
+        http.post(format!("{base}/v1/memories/remember"))
+            .bearer_auth(TOKEN)
+            .json(&body)
+            .send()
+    };
+
+    let scope = "path:~/notes";
+    let first: RememberResponse = remember(serde_json::json!({
+        "repo_key": scope, "kind": "lesson", "content": "keep notes terse",
+        "source": "capture", "evidence": "session 4"
+    }))
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let second: RememberResponse = remember(serde_json::json!({
+        "repo_key": scope, "kind": "lesson", "content": "keep notes very terse"
+    }))
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let recall = |touch: bool| {
+        http.post(format!("{base}/v1/memories/recall"))
+            .bearer_auth(TOKEN)
+            .json(&serde_json::json!({ "repo_key": scope, "query": "terse notes", "touch": touch }))
+            .send()
+    };
+    recall(false).await.unwrap();
+    let stats = memory_stats(&http, &base).await;
+    assert_eq!(stats.sources[0].retrievals, 0);
+    recall(true).await.unwrap();
+    let stats = memory_stats(&http, &base).await;
+    assert!(stats.sources[0].retrievals > 0);
+
+    let bad = remember(serde_json::json!({
+        "repo_key": scope, "kind": "lesson", "content": "x", "source": "oracle"
+    }))
+    .await
+    .unwrap();
+    assert_eq!(bad.status(), 404);
+
+    let brief = |repo_key: Option<&str>| {
+        http.post(format!("{base}/v1/memories/brief"))
+            .bearer_auth(TOKEN)
+            .json(&serde_json::json!({ "repo_key": repo_key }))
+            .send()
+    };
+    let digest: BriefResponse = brief(Some(scope)).await.unwrap().json().await.unwrap();
+    assert_eq!(digest.memories.len(), 2);
+    assert!(digest.went_stale.is_empty());
+    let elsewhere: BriefResponse = brief(Some("path:~/other"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(elsewhere.memories.is_empty());
+
+    let supersede = |old_id: i64, new_id: i64| {
+        http.post(format!("{base}/v1/memories/supersede"))
+            .bearer_auth(TOKEN)
+            .json(&serde_json::json!({ "old_id": old_id, "new_id": new_id }))
+            .send()
+    };
+    let missing: SupersedeResponse = supersede(first.id, 999)
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!missing.superseded);
+    let done: SupersedeResponse = supersede(first.id, second.id)
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(done.superseded);
+    let digest: BriefResponse = brief(Some(scope)).await.unwrap().json().await.unwrap();
+    assert_eq!(digest.memories.len(), 1);
+    assert_eq!(digest.memories[0].id, second.id);
+
+    let stats = memory_stats(&http, &base).await;
+    assert_eq!(stats.sources.len(), 1);
+    assert_eq!(stats.sources[0].source, "agent");
+    assert_eq!(stats.sources[0].memories, 1);
+}
+
+async fn memory_stats(http: &reqwest::Client, base: &str) -> MemoryStatsResponse {
+    http.get(format!("{base}/v1/memories/stats"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+/// Answers "yes" with P=0.8 when the prompt mentions SOLID, else P=0.1.
+async fn spawn_mock_verifier() -> String {
+    let app = axum::Router::new().route(
+        "/v1/chat/completions",
+        axum::routing::post(
+            |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                let prompt = body["messages"][0]["content"].as_str().unwrap_or_default();
+                let yes: f64 = if prompt.contains("SOLID") { 0.8 } else { 0.1 };
+                axum::Json(serde_json::json!({ "choices": [{
+                    "message": { "content": "yes" },
+                    "logprobs": { "content": [{ "top_logprobs": [
+                        { "token": "yes", "logprob": yes.ln() },
+                        { "token": "no", "logprob": (1.0 - yes).ln() },
+                    ]}]},
+                }]}))
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    base
+}
+
+async fn verify(http: &reqwest::Client, base: &str, evidence: &str) -> VerifyResponse {
+    http.post(format!("{base}/v1/memories/verify"))
+        .bearer_auth(TOKEN)
+        .json(&serde_json::json!({ "claim": "c", "evidence": evidence }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn verify_scores_against_the_server_threshold() {
+    let http = reqwest::Client::new();
+    let unconfigured = verify(&http, &spawn_server().await, "x").await;
+    assert!(!unconfigured.configured);
+    assert!(unconfigured.score.is_none() && unconfigured.supported.is_none());
+
+    let model = spawn_mock_verifier().await;
+    let config: VerifyConfig = toml::from_str(&format!(
+        "base_url = \"{model}\"\nmodel = \"mock\"\nthreshold = 0.5\n"
+    ))
+    .unwrap();
+    let base = spawn_server_with(None, Some(Verifier::new(config))).await;
+    let good = verify(&http, &base, "SOLID evidence").await;
+    assert!((good.score.unwrap() - 0.8).abs() < 1e-9);
+    assert_eq!(good.supported, Some(true));
+    let bad = verify(&http, &base, "vague evidence").await;
+    assert!((bad.score.unwrap() - 0.1).abs() < 1e-9);
+    assert_eq!(bad.supported, Some(false));
 }

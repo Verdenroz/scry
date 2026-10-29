@@ -18,6 +18,8 @@ pub struct Config {
     #[serde(default)]
     pub chat: Option<ChatConfig>,
     #[serde(default)]
+    pub verify: Option<VerifyConfig>,
+    #[serde(default)]
     pub tavily: Option<TavilyConfig>,
     #[serde(default)]
     pub rerank: Option<RerankConfig>,
@@ -101,6 +103,54 @@ pub struct ChatConfig {
     pub model: String,
     #[serde(default)]
     pub thinking: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum VerifyApi {
+    #[default]
+    Chat,
+    SystemOne,
+}
+
+/// Claim verifier. `chat` asks an OpenAI-compatible model a yes/no question
+/// at `{base_url}/chat/completions`; `systemone` posts to `{base_url}/systemone`.
+/// Both take a base_url ending in `/v1`.
+/// Absent means verification is not configured.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VerifyConfig {
+    #[serde(default)]
+    pub api: VerifyApi,
+    pub base_url: String,
+    pub model: String,
+    #[serde(default = "default_embedding_key")]
+    pub api_key: String,
+    #[serde(default = "default_verify_threshold")]
+    pub threshold: f64,
+    /// Chat prompt override; must contain `{claim}` and `{evidence}`.
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+
+fn default_verify_threshold() -> f64 {
+    0.5
+}
+
+impl VerifyConfig {
+    fn validate(&self) -> Result<()> {
+        let Some(prompt) = &self.prompt else {
+            return Ok(());
+        };
+        for placeholder in ["{claim}", "{evidence}"] {
+            if !prompt.contains(placeholder) {
+                return Err(Error::Config(format!(
+                    "[verify] prompt must contain {placeholder}"
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Cross-encoder over the fused top `top_n`, reached through an
@@ -309,6 +359,9 @@ impl Config {
             None => Self::default(),
         };
         config.apply_env();
+        if let Some(verify) = &config.verify {
+            verify.validate()?;
+        }
         config.server.db_path = expand_home(&config.server.db_path);
         Ok(config)
     }
@@ -332,21 +385,24 @@ impl Config {
         }
         self.server.auth_token = resolve_secret(self.server.auth_token.take());
         self.client.token = resolve_secret(self.client.token.take());
-        self.embedding.api_key =
-            resolve_secret(Some(std::mem::take(&mut self.embedding.api_key))).unwrap_or_default();
+        resolve_key(&mut self.embedding.api_key);
         if let Some(chat) = self.chat.as_mut() {
-            chat.api_key =
-                resolve_secret(Some(std::mem::take(&mut chat.api_key))).unwrap_or_default();
+            resolve_key(&mut chat.api_key);
+        }
+        if let Some(verify) = self.verify.as_mut() {
+            resolve_key(&mut verify.api_key);
         }
         if let Some(tavily) = self.tavily.as_mut() {
-            tavily.api_key =
-                resolve_secret(Some(std::mem::take(&mut tavily.api_key))).unwrap_or_default();
+            resolve_key(&mut tavily.api_key);
         }
         if let Some(rerank) = self.rerank.as_mut() {
-            rerank.api_key =
-                resolve_secret(Some(std::mem::take(&mut rerank.api_key))).unwrap_or_default();
+            resolve_key(&mut rerank.api_key);
         }
     }
+}
+
+fn resolve_key(key: &mut String) {
+    *key = resolve_secret(Some(std::mem::take(key))).unwrap_or_default();
 }
 
 #[cfg(test)]
@@ -413,6 +469,31 @@ mod tests {
         assert_eq!(rerank.top_n, 20);
         assert_eq!(rerank.weight, 2.0);
         assert!(Config::default().rerank.is_none());
+    }
+
+    #[test]
+    fn parses_verify_section_with_neutral_defaults() {
+        let config: Config =
+            toml::from_str("[verify]\nbase_url = \"http://v:8080/v1\"\nmodel = \"m\"\n").unwrap();
+        let verify = config.verify.unwrap();
+        assert_eq!(verify.api, VerifyApi::Chat);
+        assert_eq!(verify.threshold, 0.5);
+        assert!(Config::default().verify.is_none());
+    }
+
+    #[test]
+    fn verify_prompt_needs_both_placeholders() {
+        let verify = |prompt: &str| VerifyConfig {
+            api: VerifyApi::Chat,
+            base_url: String::new(),
+            model: String::new(),
+            api_key: String::new(),
+            threshold: 0.5,
+            prompt: Some(prompt.to_string()),
+        };
+        assert!(verify("{claim} vs {evidence}").validate().is_ok());
+        assert!(verify("{claim} only").validate().is_err());
+        assert!(verify("{evidence} only").validate().is_err());
     }
 
     #[test]

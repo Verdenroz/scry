@@ -12,6 +12,7 @@ pub mod repo;
 pub mod rerank;
 pub mod search;
 pub mod store;
+pub mod verify;
 pub mod walk;
 
 pub use error::{Error, Result};

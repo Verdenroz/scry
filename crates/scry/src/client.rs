@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, anyhow};
 use scry_core::config::ClientConfig;
 use scry_server::api::{
-    AnswerRequest, AnswerResponse, ErrorResponse, FeedbackRequest, FeedbackResponse,
-    ManifestRequest, ManifestResponse, PruneRequest, PruneResponse, RecallRequest, RecallResponse,
-    RememberRequest, RememberResponse, SearchRequest, SearchResponse, StatusResponse, SyncRequest,
-    SyncResponse, WebSearchRequest, WebSearchResponse,
+    AnswerRequest, AnswerResponse, BriefRequest, BriefResponse, ErrorResponse, FeedbackRequest,
+    FeedbackResponse, ManifestRequest, ManifestResponse, MemoryStatsResponse, PruneRequest,
+    PruneResponse, RecallRequest, RecallResponse, RememberRequest, RememberResponse, SearchRequest,
+    SearchResponse, StatusResponse, SupersedeRequest, SupersedeResponse, SyncRequest, SyncResponse,
+    VerifyRequest, VerifyResponse, WebSearchRequest, WebSearchResponse,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -25,6 +26,14 @@ impl ApiClient {
             base_url: config.server_url.trim_end_matches('/').to_string(),
             token: config.token.clone(),
         }
+    }
+
+    async fn get<Resp: DeserializeOwned>(&self, path: &str) -> Result<Resp> {
+        let mut builder = self.http.get(format!("{}{path}", self.base_url));
+        if let Some(token) = &self.token {
+            builder = builder.bearer_auth(token);
+        }
+        Ok(builder.send().await?.error_for_status()?.json().await?)
     }
 
     async fn post<Req: Serialize, Resp: DeserializeOwned>(
@@ -89,6 +98,18 @@ impl ApiClient {
         self.post("/v1/memories/feedback", request).await
     }
 
+    pub async fn brief(&self, request: &BriefRequest) -> Result<BriefResponse> {
+        self.post("/v1/memories/brief", request).await
+    }
+
+    pub async fn supersede(&self, request: &SupersedeRequest) -> Result<SupersedeResponse> {
+        self.post("/v1/memories/supersede", request).await
+    }
+
+    pub async fn verify(&self, request: &VerifyRequest) -> Result<VerifyResponse> {
+        self.post("/v1/memories/verify", request).await
+    }
+
     pub async fn web_search(&self, request: &WebSearchRequest) -> Result<WebSearchResponse> {
         self.post("/v1/web/search", request).await
     }
@@ -98,10 +119,10 @@ impl ApiClient {
     }
 
     pub async fn status(&self) -> Result<StatusResponse> {
-        let mut builder = self.http.get(format!("{}/v1/status", self.base_url));
-        if let Some(token) = &self.token {
-            builder = builder.bearer_auth(token);
-        }
-        Ok(builder.send().await?.error_for_status()?.json().await?)
+        self.get("/v1/status").await
+    }
+
+    pub async fn memory_stats(&self) -> Result<MemoryStatsResponse> {
+        self.get("/v1/memories/stats").await
     }
 }
