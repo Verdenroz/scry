@@ -12,6 +12,7 @@
 
 ### ✨ Features
 
+- Per-repo work lists with scry work (#22)
 - memory: Re-anchor a stale memory on reaffirm (#21)
 
 ### 🐛 Fixes
@@ -28,10 +29,26 @@
 
 ```
 # scry-core
+ADDED    scry_core::memory::now_epoch
 ADDED    scry_core::memory::reaffirm
+ADDED    scry_core::store::WORK_STATUSES
+ADDED    scry_core::store::WorkItem
+ADDED    scry_core::store::WorkList
+ADDED    scry_core::store::work::WORK_STATUSES
+ADDED    scry_core::store::work::WorkItem
+ADDED    scry_core::store::work::WorkList
 
 # scry-server
+ADDED    scry_server::api::WorkAddRequest
+ADDED    scry_server::api::WorkCloseRequest
+ADDED    scry_server::api::WorkItemResponse
+ADDED    scry_server::api::WorkListNameResponse
+ADDED    scry_server::api::WorkListRequest
+ADDED    scry_server::api::WorkListResponse
+ADDED    scry_server::api::WorkSetRequest
+ADDED    scry_server::api::WorkStateRequest
 CHANGED  scry_server::api::ReaffirmRequest (signature)
+CHANGED  scry_server::router (body)
 ```
 
 
