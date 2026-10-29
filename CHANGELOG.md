@@ -12,12 +12,15 @@
 
 ### ✨ Features
 
+- plugin: Reaffirm stale memories, omit web content (#15)
+- Scope-partitioned memory recall, suppression, gc (#14)
 - plugin: Automatic memory capture and session brief (#12)
 - Memory scopes, provenance, brief, claim verifier (#11)
 - plugin: Steer agents to recall before digging (#10)
 
 ### 🔧 Internal
 
+- Regenerate soothfast outputs (#17)
 - Regenerate soothfast outputs (#8)
 - Disable credential persistence in soothfast checkout (#7)
 - Move perf gate and changelog onto the soothfast action (#6)
@@ -34,14 +37,22 @@ ADDED    scry_core::memory::Brief
 ADDED    scry_core::memory::SOURCES
 ADDED    scry_core::memory::brief
 ADDED    scry_core::memory::validate_source
+ADDED    scry_core::memory_gc
+ADDED    scry_core::memory_gc::GcReport
+ADDED    scry_core::memory_gc::gc
 ADDED    scry_core::repo::path_scope_key
+ADDED    scry_core::store::Scope
 ADDED    scry_core::store::SourceStats
+ADDED    scry_core::store::Store::restore_memory
+ADDED    scry_core::store::memories::Scope
 ADDED    scry_core::store::memories::SourceStats
 ADDED    scry_core::verify
 ADDED    scry_core::verify::Verifier
 CHANGED  scry_core::Error (signature)
 CHANGED  scry_core::config::Config (signature)
+CHANGED  scry_core::config::MemoryConfig (signature)
 CHANGED  scry_core::error::Error (signature)
+CHANGED  scry_core::index::commit_file (body)
 CHANGED  scry_core::memory::MemoryDraft (signature)
 CHANGED  scry_core::memory::recall_with_vector (signature)
 CHANGED  scry_core::memory::remember (body)
@@ -55,13 +66,23 @@ CHANGED  scry_core::store::memories::NewMemory (signature)
 # scry-server
 ADDED    scry_server::api::BriefRequest
 ADDED    scry_server::api::BriefResponse
+ADDED    scry_server::api::GcRequest
+ADDED    scry_server::api::GcResponse
 ADDED    scry_server::api::MemoryStatsResponse
+ADDED    scry_server::api::ReaffirmRequest
+ADDED    scry_server::api::ReaffirmResponse
+ADDED    scry_server::api::RestoreRequest
+ADDED    scry_server::api::RestoreResponse
 ADDED    scry_server::api::SourceStatsDto
+ADDED    scry_server::api::StaleMemoryDto
+ADDED    scry_server::api::StaleRequest
+ADDED    scry_server::api::StaleResponse
 ADDED    scry_server::api::SupersedeRequest
 ADDED    scry_server::api::SupersedeResponse
 ADDED    scry_server::api::VerifyRequest
 ADDED    scry_server::api::VerifyResponse
 CHANGED  scry_server::AppState (signature)
+CHANGED  scry_server::api::FeedbackRequest (signature)
 CHANGED  scry_server::api::RecallRequest (signature)
 CHANGED  scry_server::api::RememberRequest (signature)
 CHANGED  scry_server::router (body)
