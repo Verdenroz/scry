@@ -172,7 +172,7 @@ def capture_range(payload: dict) -> dict:
     output = capture_model.call(
         capture_model.build_prompt(text, existing, stale), str(STATE_DIR)
     )
-    plan = capture_verify.plan(output, kept, edited, set(existing) | set(stale), stale)
+    plan = capture_verify.plan(output, kept, edited, set(existing), stale)
     plan["memories"], verdicts = verify_memories(plan["memories"], cwd)
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])

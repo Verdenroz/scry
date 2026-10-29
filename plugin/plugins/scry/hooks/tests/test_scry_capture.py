@@ -443,6 +443,20 @@ class ReaffirmTests(CaptureCase):
             [["scry", "memory", "supersede", "31", "50"]],
         )
 
+    def test_stale_id_cannot_be_reinforced_or_contradicted(self):
+        claim = {"id": 31, "evidence": {"entry": 5, "quote": QUOTE}}
+        out = {
+            "memories": [],
+            "reinforce": [claim],
+            "contradict": [claim],
+            "reaffirm": [],
+        }
+        fake = Fake(out, stale=STALE_LINE)
+        result = self.run_capture(fake)
+        self.assertEqual((result["helpful"], result["noise"]), (0, 0))
+        self.assertEqual(fake.scry("scry", "memory", "helpful"), [])
+        self.assertEqual(fake.scry("scry", "memory", "noise"), [])
+
 
 class EntryTests(unittest.TestCase):
     def run_entry(self, env, stdin="{}"):
