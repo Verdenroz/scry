@@ -349,7 +349,7 @@ mod tests {
         let repo = store.upsert_repo("github.com/x/y").unwrap();
         let id = store.add_memory(&memory(Some(repo), 0.1), &[]).unwrap();
         let query = [0.1, 1.0, 0.0, 0.0];
-        store.memory_feedback(id, false, Some(repo)).unwrap();
+        store.memory_feedback(id, false, Scope::Repo(repo)).unwrap();
 
         store.archive_memories(&[id]).unwrap();
         assert!(
@@ -378,7 +378,7 @@ mod tests {
         let id = store.add_memory(&memory(Some(repo), 0.1), &[]).unwrap();
         let before = store.memory(id).unwrap().unwrap().salience;
         for _ in 0..3 {
-            store.memory_feedback(id, false, Some(repo)).unwrap();
+            store.memory_feedback(id, false, Scope::Repo(repo)).unwrap();
         }
         assert!(store.memory(id).unwrap().unwrap().salience < before);
         store.archive_memories(&[id]).unwrap();

@@ -250,10 +250,14 @@ impl Store {
     }
 
     /// A helpful vote stamps `helpful_at` and lifts the memory's suppression
-    /// in `scope`; a noise vote suppresses it there (`None` is the unscoped
-    /// context).
-    pub fn memory_feedback(&self, id: i64, helpful: bool, scope: Option<i64>) -> Result<bool> {
-        let partition = scope_partition(scope);
+    /// in `scope`; a noise vote suppresses it there. An unseen scope has no
+    /// suppressions to lift, and noise never arrives from one.
+    pub fn memory_feedback(&self, id: i64, helpful: bool, scope: Scope) -> Result<bool> {
+        let partition = match scope {
+            Scope::Unscoped => Some(0),
+            Scope::Repo(repo_id) => Some(repo_id),
+            Scope::Unseen => None,
+        };
         let tx = self.conn.unchecked_transaction()?;
         let changed = if helpful {
             let changed = tx.execute(
@@ -261,10 +265,12 @@ impl Store {
                  last_access = unixepoch(), helpful_at = unixepoch() WHERE id = ?1",
                 [id],
             )?;
-            tx.execute(
-                "DELETE FROM memory_suppressions WHERE memory_id = ?1 AND repo_id = ?2",
-                params![id, partition],
-            )?;
+            if let Some(partition) = partition {
+                tx.execute(
+                    "DELETE FROM memory_suppressions WHERE memory_id = ?1 AND repo_id = ?2",
+                    params![id, partition],
+                )?;
+            }
             changed
         } else {
             let changed = tx.execute(
@@ -272,7 +278,7 @@ impl Store {
                  WHERE id = ?1",
                 [id],
             )?;
-            if changed > 0 {
+            if let (true, Some(partition)) = (changed > 0, partition) {
                 tx.execute(
                     "INSERT INTO memory_suppressions (memory_id, repo_id) VALUES (?1, ?2)
                      ON CONFLICT (memory_id, repo_id) DO UPDATE SET created_at = unixepoch()",
@@ -548,16 +554,20 @@ mod tests {
         };
         assert_eq!(visible(a), 2);
 
-        store.memory_feedback(global, false, Some(a)).unwrap();
+        store
+            .memory_feedback(global, false, Scope::Repo(a))
+            .unwrap();
         assert_eq!(visible(a), 0);
         assert_eq!(visible(b), 2);
 
-        store.memory_feedback(global, true, Some(b)).unwrap();
+        store.memory_feedback(global, true, Scope::Repo(b)).unwrap();
         assert_eq!(visible(a), 0);
 
-        store.memory_feedback(global, false, Some(a)).unwrap();
+        store
+            .memory_feedback(global, false, Scope::Repo(a))
+            .unwrap();
         assert_eq!(visible(a), 0);
-        store.memory_feedback(global, true, Some(a)).unwrap();
+        store.memory_feedback(global, true, Scope::Repo(a)).unwrap();
         assert_eq!(visible(a), 2);
     }
 
@@ -566,7 +576,9 @@ mod tests {
         let mut store = Store::open_in_memory("m", 4).unwrap();
         let global = store.add_memory(&memory(None, "agent", 0.1), &[]).unwrap();
         let query = [0.1, 1.0, 0.0, 0.0];
-        store.memory_feedback(global, false, None).unwrap();
+        store
+            .memory_feedback(global, false, Scope::Unscoped)
+            .unwrap();
 
         let unseen = store.scope(Some("github.com/x/new")).unwrap();
         assert_eq!(unseen, Scope::Unseen);
@@ -588,7 +600,7 @@ mod tests {
         let id = store
             .add_memory(&memory(Some(a), "agent", 0.1), &[])
             .unwrap();
-        store.memory_feedback(id, false, Some(a)).unwrap();
+        store.memory_feedback(id, false, Scope::Repo(a)).unwrap();
         store.prune_repo("github.com/x/a", Some(b)).unwrap();
 
         let partitions = |table: &str| -> Vec<i64> {
@@ -640,7 +652,7 @@ mod tests {
         let kept = store
             .add_memory(&memory(Some(a), "agent", 0.2), &[])
             .unwrap();
-        store.memory_feedback(noisy, false, Some(a)).unwrap();
+        store.memory_feedback(noisy, false, Scope::Repo(a)).unwrap();
         store.prune_repo("github.com/x/a", None).unwrap();
 
         assert_eq!(store.memory(noisy).unwrap().unwrap().status, "archived");
@@ -679,8 +691,8 @@ mod tests {
             .add_memory(&memory(None, "capture", 0.1), &[])
             .unwrap();
         let new = store.add_memory(&memory(None, "agent", 0.2), &[]).unwrap();
-        store.memory_feedback(old, false, None).unwrap();
-        store.memory_feedback(old, true, None).unwrap();
+        store.memory_feedback(old, false, Scope::Unscoped).unwrap();
+        store.memory_feedback(old, true, Scope::Unscoped).unwrap();
 
         assert!(!store.supersede_memory(old, 999).unwrap());
         assert_eq!(store.live_memories(Scope::Unscoped).unwrap().len(), 2);
@@ -713,8 +725,8 @@ mod tests {
             .unwrap();
         store.add_memory(&memory(None, "agent", 0.3), &[]).unwrap();
         store.touch_memories(&[a, a]).unwrap();
-        store.memory_feedback(a, true, None).unwrap();
-        store.memory_feedback(a, false, None).unwrap();
+        store.memory_feedback(a, true, Scope::Unscoped).unwrap();
+        store.memory_feedback(a, false, Scope::Unscoped).unwrap();
 
         let stats = store.memory_source_stats().unwrap();
         let capture = stats.iter().find(|s| s.source == "capture").unwrap();

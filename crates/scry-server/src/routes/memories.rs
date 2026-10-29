@@ -7,6 +7,7 @@ use scry_core::memory::{
     remember_with_embedding, validate_kind, validate_source,
 };
 use scry_core::memory_gc;
+use scry_core::store::Scope;
 
 use crate::AppState;
 use crate::api::{
@@ -116,9 +117,9 @@ pub async fn feedback(
             if store.memory(request.id)?.is_none() {
                 return Ok(false);
             }
-            let scope = match &request.repo_key {
-                Some(key) => Some(store.upsert_repo(key)?),
-                None => None,
+            let scope = match (&request.repo_key, request.helpful) {
+                (Some(key), false) => Scope::Repo(store.upsert_repo(key)?),
+                (key, _) => store.scope(key.as_deref())?,
             };
             store.memory_feedback(request.id, request.helpful, scope)
         })

@@ -87,7 +87,7 @@ fn matching_rule(row: &MemoryRow, scopes: &[i64], config: &MemoryConfig, now: i6
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::NewMemory;
+    use crate::store::{NewMemory, Scope};
 
     fn add_in(store: &mut Store, repo_id: Option<i64>, kind: &str, seed: f32) -> i64 {
         store
@@ -157,28 +157,28 @@ mod tests {
         );
 
         let noisy = add(&mut store, "lesson", 0.8);
-        store.memory_feedback(noisy, false, Some(1)).unwrap();
-        store.memory_feedback(noisy, false, Some(2)).unwrap();
+        store.memory_feedback(noisy, false, Scope::Repo(1)).unwrap();
+        store.memory_feedback(noisy, false, Scope::Repo(2)).unwrap();
         let once = add(&mut store, "lesson", 0.9);
-        store.memory_feedback(once, false, Some(1)).unwrap();
-        store.memory_feedback(once, false, Some(1)).unwrap();
+        store.memory_feedback(once, false, Scope::Repo(1)).unwrap();
+        store.memory_feedback(once, false, Scope::Repo(1)).unwrap();
 
         let repo = store.upsert_repo("github.com/x/y").unwrap();
         let other = store.upsert_repo("github.com/x/z").unwrap();
         let local_noise = add_in(&mut store, Some(repo), "lesson", 1.0);
         store
-            .memory_feedback(local_noise, false, Some(repo))
+            .memory_feedback(local_noise, false, Scope::Repo(repo))
             .unwrap();
         let local_helped = add_in(&mut store, Some(repo), "lesson", 1.1);
         store
-            .memory_feedback(local_helped, true, Some(repo))
+            .memory_feedback(local_helped, true, Scope::Repo(repo))
             .unwrap();
         store
-            .memory_feedback(local_helped, false, Some(repo))
+            .memory_feedback(local_helped, false, Scope::Repo(repo))
             .unwrap();
         let elsewhere = add_in(&mut store, Some(repo), "lesson", 1.2);
         store
-            .memory_feedback(elsewhere, false, Some(other))
+            .memory_feedback(elsewhere, false, Scope::Repo(other))
             .unwrap();
 
         let config = MemoryConfig::default();

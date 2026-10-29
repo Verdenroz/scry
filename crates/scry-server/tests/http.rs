@@ -398,6 +398,45 @@ async fn feedback_on_a_missing_memory_creates_no_repo() {
     assert_eq!(status.repos, 0);
 }
 
+#[tokio::test]
+async fn a_helpful_vote_from_an_unseen_scope_creates_no_repo() {
+    let base = spawn_server().await;
+    let http = reqwest::Client::new();
+    let remembered: RememberResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/remember",
+        serde_json::json!({ "kind": "lesson", "content": "global fact" }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    let response: FeedbackResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/feedback",
+        serde_json::json!({
+            "id": remembered.id, "helpful": true, "repo_key": "github.com/test/phantom"
+        }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    assert!(response.updated);
+    let status: StatusResponse = http
+        .get(format!("{base}/v1/status"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status.repos, 0);
+}
+
 async fn memory_stats(http: &reqwest::Client, base: &str) -> MemoryStatsResponse {
     http.get(format!("{base}/v1/memories/stats"))
         .bearer_auth(TOKEN)
