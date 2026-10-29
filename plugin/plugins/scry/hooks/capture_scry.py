@@ -4,7 +4,8 @@ import subprocess
 import capture_transcript
 
 REMEMBERED = re.compile(r"remembered #(\d+)")
-STALE = re.compile(r"^\[(\w+) #(\d+)\] \(stale\) \S+ (.*)$", re.MULTILINE)
+STALE = re.compile(r"^\[(\w+) #(\d+)\] \(stale\)\t[^\t\n]*\t(.*)$", re.MULTILINE)
+ESCAPE = re.compile(r"\\([\\n])")
 
 
 def run(args, cwd, timeout=60):
@@ -32,13 +33,17 @@ def remember(memory, cwd):
     return int(found.group(1)) if result.returncode == 0 and found else None
 
 
+def unescape(text: str) -> str:
+    return ESCAPE.sub(lambda m: "\n" if m.group(1) == "n" else "\\", text)
+
+
 def stale(files, cwd: str) -> dict:
     args = ["memory", "stale"] + [x for f in files for x in ("--file", f)]
     result = run(args, cwd)
     if result.returncode != 0:
         return {}
     return {
-        int(ident): (kind, content)
+        int(ident): (kind, unescape(content))
         for kind, ident, content in STALE.findall(result.stdout)
     }
 

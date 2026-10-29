@@ -69,8 +69,6 @@ def repo_relative(paths, cwd: str) -> set:
 
 
 def write_plan(plan: dict, cwd: str) -> int:
-    if plan["reaffirm"] or any(m["anchors"] for m in plan["memories"]):
-        capture_scry.index(cwd)
     written = 0
     for memory in plan["memories"]:
         ident = capture_scry.remember(memory, cwd)
@@ -167,7 +165,10 @@ def capture_range(payload: dict) -> dict:
     existing.update(capture_scry.recall(capture_transcript.first_prompt(entries), cwd))
     text, kept = capture_transcript.render(entries)
     edited = repo_relative(capture_transcript.edited_paths(entries), cwd)
-    stale = capture_scry.stale(sorted(edited), cwd) if edited else {}
+    stale = {}
+    if edited:
+        capture_scry.index(cwd)
+        stale = capture_scry.stale(sorted(edited), cwd)
     output = capture_model.call(
         capture_model.build_prompt(text, existing, stale), str(STATE_DIR)
     )

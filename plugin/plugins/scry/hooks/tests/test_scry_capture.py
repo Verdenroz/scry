@@ -272,7 +272,6 @@ class CaptureTests(CaptureCase):
         (remember,) = fake.scry("scry", "remember")
         self.assertIn("episode", remember)
         self.assertNotIn("--anchor", remember)
-        self.assertEqual(fake.scry("scry", "index"), [])
 
     def test_not_configured_keeps_quote_only_result(self):
         fake, result = self.verified(("not configured", 0))
@@ -323,7 +322,7 @@ class CaptureTests(CaptureCase):
         self.assertFalse((self.root / "state" / "s1.json").exists())
 
 
-STALE_LINE = "[fact #31] (stale) src/lib.rs cc must be on PATH\n"
+STALE_LINE = "[fact #31] (stale)\tsrc/lib.rs\tcc must be on PATH\n"
 
 
 def reaffirm_output(**extra):
@@ -370,11 +369,13 @@ class ReaffirmTests(CaptureCase):
             [["scry", "memory", "reaffirm", "31", "--evidence", f"[#5] {QUOTE}"]],
         )
 
-    def test_reaffirm_only_plan_indexes_before_reaffirming(self):
-        fake = Fake(reaffirm_output(), stale=STALE_LINE)
+    def test_index_runs_once_before_the_stale_lookup(self):
+        out = reaffirm_output()
+        out["memories"] = [lesson()]
+        fake = Fake(out, stale=STALE_LINE)
         self.run_capture(fake)
         order = [" ".join(a[:3]) for a, _ in fake.calls if a[0] == "scry"]
-        self.assertLess(order.index("scry index"), order.index("scry memory reaffirm"))
+        self.assertLess(order.index("scry index"), order.index("scry memory stale"))
         self.assertEqual(len(fake.scry("scry", "index")), 1)
 
     def test_not_configured_verifier_still_reaffirms(self):
@@ -389,7 +390,7 @@ class ReaffirmTests(CaptureCase):
         self.assertEqual(fake.scry("scry", "memory", "reaffirm"), [])
 
     def test_unconfigured_verifier_is_called_once_across_reaffirms(self):
-        second = "[fact #32] (stale) src/lib.rs other claim\n"
+        second = "[fact #32] (stale)\tsrc/lib.rs\tother claim\n"
         out = reaffirm_output()
         out["reaffirm"].append({"id": 32, "evidence": {"entry": 5, "quote": QUOTE}})
         fake = Fake(out, stale=STALE_LINE + second)
@@ -410,6 +411,13 @@ class ReaffirmTests(CaptureCase):
         fake = Fake(reaffirm_output(), stale="")
         self.assertEqual(self.run_capture(fake)["reaffirmed"], [])
         self.assertEqual(fake.scry("scry", "memory", "reaffirm"), [])
+
+    def test_stale_tsv_keeps_spaced_paths_and_unescapes_content(self):
+        line = "[fact #31] (stale)\tsrc/my file.rs,b.rs\tline one\\nline two\\\\n\n"
+        fake = Fake(reaffirm_output(), stale=line, verify=("supported 0.9", 0))
+        self.run_capture(fake)
+        (verify,) = fake.scry("scry", "memory", "verify")
+        self.assertEqual(verify[-1], "line one\nline two\\n")
 
     def test_unproven_citation_is_ignored(self):
         bad = reaffirm_output(evidence={"entry": 1, "quote": "why does the build fail?"})
