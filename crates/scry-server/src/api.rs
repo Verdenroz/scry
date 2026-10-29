@@ -167,6 +167,9 @@ pub struct MemoryDto {
 pub struct FeedbackRequest {
     pub id: i64,
     pub helpful: bool,
+    /// Scope the vote was cast in; noise suppresses the memory there.
+    #[serde(default)]
+    pub repo_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

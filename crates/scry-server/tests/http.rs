@@ -327,6 +327,19 @@ async fn memory_brief_supersede_and_stats() {
         .unwrap();
     assert!(elsewhere.memories.is_empty());
 
+    let feedback = |id: i64, helpful: bool| {
+        http.post(format!("{base}/v1/memories/feedback"))
+            .bearer_auth(TOKEN)
+            .json(&serde_json::json!({ "id": id, "helpful": helpful, "repo_key": scope }))
+            .send()
+    };
+    feedback(first.id, false).await.unwrap();
+    let digest: BriefResponse = brief(Some(scope)).await.unwrap().json().await.unwrap();
+    assert_eq!(digest.memories.len(), 1);
+    feedback(first.id, true).await.unwrap();
+    let digest: BriefResponse = brief(Some(scope)).await.unwrap().json().await.unwrap();
+    assert_eq!(digest.memories.len(), 2);
+
     let supersede = |old_id: i64, new_id: i64| {
         http.post(format!("{base}/v1/memories/supersede"))
             .bearer_auth(TOKEN)

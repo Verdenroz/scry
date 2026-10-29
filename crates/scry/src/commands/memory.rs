@@ -213,7 +213,11 @@ pub async fn feedback(args: &[String]) -> Result<()> {
     let ctx = repo_context()?;
     let response = ctx
         .client
-        .feedback(&FeedbackRequest { id, helpful })
+        .feedback(&FeedbackRequest {
+            id,
+            helpful,
+            repo_key: Some(memory_scope_key(&ctx.identity)),
+        })
         .await?;
     println!(
         "{}",

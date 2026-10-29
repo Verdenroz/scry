@@ -84,6 +84,7 @@ pub async fn recall(
             recall_with_vector(
                 store,
                 repo_id,
+                request.repo_key.is_some(),
                 &vector,
                 request.limit,
                 half_life,
@@ -112,7 +113,13 @@ pub async fn feedback(
 ) -> Result<Json<FeedbackResponse>, ApiError> {
     let updated = state
         .store
-        .call(move |store| store.memory_feedback(request.id, request.helpful, None))
+        .call(move |store| {
+            let scope = match &request.repo_key {
+                Some(key) => Some(store.upsert_repo(key)?),
+                None => None,
+            };
+            store.memory_feedback(request.id, request.helpful, scope)
+        })
         .await?;
     Ok(Json(FeedbackResponse { updated }))
 }

@@ -185,31 +185,35 @@ fn now_epoch() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// In a scoped recall (a scope key was given, even one with no rows yet) at
+/// most [`BRIEF_GLOBAL_MAX`] globals make the list.
 pub fn recall_with_vector(
     store: &Store,
     repo_id: Option<i64>,
+    scoped: bool,
     vector: &[f32],
     limit: usize,
     half_life_days: f64,
     touch: bool,
 ) -> Result<Vec<MemoryHit>> {
     let now = now_epoch();
-    let mut hits: Vec<MemoryHit> = store
+    let mut ranked: Vec<(MemoryHit, bool)> = store
         .memory_candidates(repo_id, vector, CANDIDATES)?
         .into_iter()
         .map(|(row, distance)| {
             let similarity = (1.0 - distance).clamp(0.0, 1.0);
-            MemoryHit {
+            let hit = MemoryHit {
                 id: row.id,
                 kind: row.kind.clone(),
                 content: row.content.clone(),
                 score: recall_score(similarity, &row, now, half_life_days),
                 stale: row.status == "stale",
-            }
+            };
+            (hit, row.repo_id.is_none())
         })
         .collect();
-    hits.sort_by(|a, b| b.score.total_cmp(&a.score));
-    hits.truncate(limit.max(1));
+    ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    let hits = cap_globals(ranked, scoped, limit.max(1));
     if touch {
         store.touch_memories(&hits.iter().map(|h| h.id).collect::<Vec<_>>())?;
     }
@@ -245,16 +249,7 @@ pub fn brief(
         })
         .collect();
     ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
-    let mut globals = 0;
-    let top = ranked
-        .into_iter()
-        .filter(|(_, global)| {
-            globals += usize::from(*global);
-            !scoped || !*global || globals <= BRIEF_GLOBAL_MAX
-        })
-        .map(|(hit, _)| hit)
-        .take(limit)
-        .collect();
+    let top = cap_globals(ranked, scoped, limit);
     let since = now - i64::from(stale_days) * 86_400;
     let went_stale = store
         .recently_stale_memories(repo_id, since, BRIEF_STALE_MAX)?
@@ -262,6 +257,19 @@ pub fn brief(
         .map(|row| brief_hit(row, now, half_life_days, true))
         .collect();
     Ok(Brief { top, went_stale })
+}
+
+fn cap_globals(ranked: Vec<(MemoryHit, bool)>, scoped: bool, limit: usize) -> Vec<MemoryHit> {
+    let mut globals = 0;
+    ranked
+        .into_iter()
+        .filter(|(_, global)| {
+            globals += usize::from(*global);
+            !scoped || !*global || globals <= BRIEF_GLOBAL_MAX
+        })
+        .map(|(hit, _)| hit)
+        .take(limit)
+        .collect()
 }
 
 fn brief_hit(row: MemoryRow, now: i64, half_life_days: f64, stale: bool) -> MemoryHit {

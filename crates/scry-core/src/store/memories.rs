@@ -55,6 +55,17 @@ pub(super) fn scope_partition(repo_id: Option<i64>) -> i64 {
     repo_id.unwrap_or(0)
 }
 
+/// Excludes memories marked noise in the current scope, unless a helpful
+/// vote landed after the suppression.
+fn not_suppressed(repo_id: Option<i64>) -> String {
+    format!(
+        "NOT EXISTS (SELECT 1 FROM memory_suppressions s
+                     WHERE s.memory_id = memories.id AND s.repo_id = {}
+                       AND coalesce(memories.helpful_at, 0) <= s.created_at)",
+        scope_partition(repo_id)
+    )
+}
+
 const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at";
 
 fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
@@ -119,7 +130,7 @@ impl Store {
     }
 
     /// Nearest live/stale memories for a repo (plus repo-less globals),
-    /// excluding superseded and archived rows. Each scope is its own
+    /// excluding superseded, archived, and suppressed rows. Each scope is its own
     /// partitioned KNN so a large neighbor scope cannot crowd the result.
     pub fn memory_candidates(
         &self,
@@ -135,7 +146,9 @@ impl Store {
 
         let mut fetch = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM memories
-             WHERE id = ?1 AND status != 'archived' AND superseded_by IS NULL"
+             WHERE id = ?1 AND status != 'archived' AND superseded_by IS NULL
+               AND {}",
+            not_suppressed(repo_id)
         ))?;
         let mut rows = Vec::new();
         for (memory_id, distance) in near {
@@ -296,12 +309,14 @@ impl Store {
         Ok(true)
     }
 
-    /// Live memories in scope (plus repo-less globals); no access bookkeeping.
+    /// Live, unsuppressed memories in scope (plus repo-less globals); no
+    /// access bookkeeping.
     pub fn live_memories(&self, repo_id: Option<i64>) -> Result<Vec<MemoryRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM memories
              WHERE status = 'live' AND superseded_by IS NULL
-               AND (repo_id IS NULL OR repo_id = ?1)"
+               AND (repo_id IS NULL OR repo_id = ?1) AND {}",
+            not_suppressed(repo_id)
         ))?;
         let rows = stmt
             .query_map([repo_id], memory_row)?
@@ -309,7 +324,8 @@ impl Store {
         Ok(rows)
     }
 
-    /// Memories in scope that went stale at or after `since`, newest first.
+    /// Unsuppressed memories in scope that went stale at or after `since`,
+    /// newest first.
     pub fn recently_stale_memories(
         &self,
         repo_id: Option<i64>,
@@ -319,8 +335,9 @@ impl Store {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM memories
              WHERE status = 'stale' AND superseded_by IS NULL AND stale_at >= ?2
-               AND (repo_id IS NULL OR repo_id = ?1)
-             ORDER BY stale_at DESC LIMIT ?3"
+               AND (repo_id IS NULL OR repo_id = ?1) AND {}
+             ORDER BY stale_at DESC LIMIT ?3",
+            not_suppressed(repo_id)
         ))?;
         let rows = stmt
             .query_map(params![repo_id, since, limit as i64], memory_row)?
@@ -459,6 +476,43 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&mine) && ids.contains(&global));
         assert!(found.windows(2).all(|w| w[0].1 <= w[1].1));
+    }
+
+    #[test]
+    fn suppression_hides_a_memory_in_its_scope_until_a_later_helpful_vote() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let a = store.upsert_repo("github.com/x/a").unwrap();
+        let b = store.upsert_repo("github.com/x/b").unwrap();
+        let global = store.add_memory(&memory(None, "agent", 0.1), &[]).unwrap();
+        let query = [0.1, 1.0, 0.0, 0.0];
+        let visible = |scope: i64| {
+            store
+                .memory_candidates(Some(scope), &query, 5)
+                .unwrap()
+                .len()
+                + store.live_memories(Some(scope)).unwrap().len()
+        };
+        assert_eq!(visible(a), 2);
+
+        store.memory_feedback(global, false, Some(a)).unwrap();
+        assert_eq!(visible(a), 0);
+        assert_eq!(visible(b), 2);
+
+        store.memory_feedback(global, true, Some(b)).unwrap();
+        assert_eq!(visible(a), 0);
+        store
+            .conn
+            .execute(
+                "UPDATE memory_suppressions SET created_at = created_at - 10",
+                [],
+            )
+            .unwrap();
+        assert_eq!(visible(a), 2);
+
+        store.memory_feedback(global, false, Some(a)).unwrap();
+        assert_eq!(visible(a), 0);
+        store.memory_feedback(global, true, Some(a)).unwrap();
+        assert_eq!(visible(a), 2);
     }
 
     #[test]
