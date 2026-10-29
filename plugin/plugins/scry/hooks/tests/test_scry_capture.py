@@ -45,6 +45,10 @@ class Fake:
             out = "remembered #50 (salience 0.5, surprise 0.2)"
         elif argv[:3] == ["scry", "memory", "verify"]:
             out, code = self.verify
+            rest = argv[3:]
+            claim = rest[rest.index("--") + 1] if "--" in rest else rest[0]
+            if claim.startswith("-") and "--" not in rest:
+                out, code = "", 2
         elif argv[:3] == ["scry", "memory", "stale"]:
             out = self.stale
         elif argv[:3] == ["scry", "memory", "reaffirm"]:
@@ -257,8 +261,8 @@ class CaptureTests(CaptureCase):
         self.assertEqual(result["verified"], [["lesson", 0.83]])
         self.assertEqual(result["downgraded"], 0)
         (verify,) = fake.scry("scry", "memory", "verify")
-        self.assertEqual(verify[3], "cc is needed")
-        self.assertIn(f"error: {QUOTE}", verify[5])
+        self.assertEqual(verify[-1], "cc is needed")
+        self.assertIn(f"error: {QUOTE}", verify[4])
         self.assertIn("lesson", fake.scry("scry", "remember")[0])
         self.assertIn("--anchor", fake.scry("scry", "remember")[0])
 
@@ -281,6 +285,19 @@ class CaptureTests(CaptureCase):
         self.assertEqual(result["downgraded"], 1)
         self.assertEqual(len(result["verify_errors"]), 1)
         self.assertIn("episode", fake.scry("scry", "remember")[0])
+
+    def test_dash_leading_claim_is_verified_after_the_separator(self):
+        out = {
+            "memories": [lesson(content="--force pushes need a lease")],
+            "reinforce": [],
+            "contradict": [],
+        }
+        fake = Fake(out, verify=("supported 0.9", 0))
+        result = self.run_capture(fake)
+        self.assertEqual(result["verified"], [["lesson", 0.9]])
+        self.assertNotIn("verify_errors", result)
+        (verify,) = fake.scry("scry", "memory", "verify")
+        self.assertEqual(verify[-2:], ["--", "--force pushes need a lease"])
 
     def test_unsupported_drops_supersedes(self):
         out = {
@@ -346,8 +363,8 @@ class ReaffirmTests(CaptureCase):
         result = self.run_capture(fake)
         self.assertEqual(result["reaffirmed"], [31])
         (verify,) = fake.scry("scry", "memory", "verify")
-        self.assertEqual(verify[3], "cc must be on PATH")
-        self.assertIn(f"error: {QUOTE}", verify[5])
+        self.assertEqual(verify[-1], "cc must be on PATH")
+        self.assertIn(f"error: {QUOTE}", verify[4])
         self.assertEqual(
             fake.scry("scry", "memory", "reaffirm"),
             [["scry", "memory", "reaffirm", "31", "--evidence", f"[#5] {QUOTE}"]],
@@ -363,6 +380,22 @@ class ReaffirmTests(CaptureCase):
     def test_not_configured_verifier_still_reaffirms(self):
         fake = Fake(reaffirm_output(), stale=STALE_LINE)
         self.assertEqual(self.run_capture(fake)["reaffirmed"], [31])
+
+    def test_reaffirm_verify_failure_is_recorded_and_not_applied(self):
+        fake = Fake(reaffirm_output(), stale=STALE_LINE, verify=("", 2))
+        result = self.run_capture(fake)
+        self.assertEqual((result["reaffirmed"], result["reaffirm_failed"]), ([], [31]))
+        self.assertEqual(len(result["verify_errors"]), 1)
+        self.assertEqual(fake.scry("scry", "memory", "reaffirm"), [])
+
+    def test_unconfigured_verifier_is_called_once_across_reaffirms(self):
+        second = "[fact #32] (stale) src/lib.rs other claim\n"
+        out = reaffirm_output()
+        out["reaffirm"].append({"id": 32, "evidence": {"entry": 5, "quote": QUOTE}})
+        fake = Fake(out, stale=STALE_LINE + second)
+        result = self.run_capture(fake)
+        self.assertEqual(result["reaffirmed"], [31, 32])
+        self.assertEqual(len(fake.scry("scry", "memory", "verify")), 1)
 
     def test_unsupported_reaffirm_is_dropped(self):
         fake = Fake(

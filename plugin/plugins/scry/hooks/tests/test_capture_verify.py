@@ -84,6 +84,21 @@ class ProvableTests(unittest.TestCase):
         self.assertEqual(cv.proven_ids(claims, KEPT, {"tool_result", "user"}, {7}), [])
         self.assertEqual(cv.reaffirmable(claims, KEPT, {7: ("fact", "c")}), [])
 
+    def test_reaffirm_dedupes_ids_and_drops_superseded_ones(self):
+        claim = lambda i: {"id": i, "evidence": cited(3, QUOTE)}
+        stale = {7: ("fact", "a"), 8: ("fact", "b")}
+        out = cv.reaffirmable([claim(7), claim(7), claim(8)], KEPT, stale, {8})
+        self.assertEqual([c["id"] for c in out], [7])
+
+    def test_plan_drops_reaffirm_of_a_memory_it_supersedes(self):
+        output = {
+            "memories": [memory("lesson", cited(3, QUOTE), supersedes=7)],
+            "reaffirm": [{"id": 7, "evidence": cited(3, QUOTE)}],
+        }
+        out = cv.plan(output, KEPT, set(), {7}, {7: ("fact", "a")})
+        self.assertEqual(out["reaffirm"], [])
+        self.assertEqual(out["memories"][0]["supersedes"], 7)
+
     def test_user_prompt_stays_valid(self):
         self.assertTrue(cv.holds(cited(1, "run the linker before pushing"), KEPT, {"user"}))
 

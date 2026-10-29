@@ -62,27 +62,36 @@ def proven_ids(claims, kept, kinds, shown) -> list:
     ]
 
 
-def reaffirmable(claims, kept, stale) -> list:
-    return [
-        {
-            "id": c["id"],
-            "content": stale[c["id"]][1],
-            "evidence": cite(c["evidence"]),
-            "source": kept[c["evidence"]["entry"]].body,
-        }
-        for c in claims or []
-        if c["id"] in stale and holds(c.get("evidence"), kept, REINFORCE_KINDS)
-    ]
+def reaffirmable(claims, kept, stale, superseded=()) -> list:
+    taken = set(superseded)
+    out = []
+    for c in claims or []:
+        if c["id"] in taken or c["id"] not in stale:
+            continue
+        if not holds(c.get("evidence"), kept, REINFORCE_KINDS):
+            continue
+        taken.add(c["id"])
+        out.append(
+            {
+                "id": c["id"],
+                "content": stale[c["id"]][1],
+                "evidence": cite(c["evidence"]),
+                "source": kept[c["evidence"]["entry"]].body,
+            }
+        )
+    return out
 
 
 def plan(output, kept, edited, shown, stale=()):
     memories = [settle(m, kept, edited) for m in output.get("memories") or []]
+    memories = [
+        {**m, "supersedes": m["supersedes"] if m["supersedes"] in shown else None}
+        for m in memories[:MAX_MEMORIES]
+    ]
+    superseded = {m["supersedes"] for m in memories}
     return {
-        "memories": [
-            {**m, "supersedes": m["supersedes"] if m["supersedes"] in shown else None}
-            for m in memories[:MAX_MEMORIES]
-        ],
+        "memories": memories,
         "helpful": proven_ids(output.get("reinforce"), kept, REINFORCE_KINDS, shown),
         "noise": proven_ids(output.get("contradict"), kept, CONTRADICT_KINDS, shown),
-        "reaffirm": reaffirmable(output.get("reaffirm"), kept, stale),
+        "reaffirm": reaffirmable(output.get("reaffirm"), kept, stale, superseded),
     }

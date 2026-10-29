@@ -117,23 +117,29 @@ def verify_memories(memories, cwd: str):
     return out, record
 
 
-def reaffirm_memories(claims, cwd: str) -> dict:
-    done, failed, unsupported = [], [], []
+def reaffirm_memories(claims, cwd: str, configured: bool = True) -> dict:
+    done, failed, unsupported, errors = [], [], [], []
     for claim in claims:
         try:
-            verdict, _ = capture_scry.verify(claim["content"], claim["source"], cwd)
-            if verdict == "unsupported":
-                unsupported.append(claim["id"])
-                continue
+            if configured:
+                verdict, _ = capture_scry.verify(claim["content"], claim["source"], cwd)
+                configured = verdict != "not configured"
+                if verdict == "unsupported":
+                    unsupported.append(claim["id"])
+                    continue
             ok = capture_scry.reaffirm(claim["id"], claim["evidence"], cwd)
-        except Exception:
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
             ok = False
         (done if ok else failed).append(claim["id"])
-    return {
+    record = {
         "reaffirmed": done,
         "reaffirm_failed": failed,
         "reaffirm_unsupported": unsupported,
     }
+    if errors:
+        record["verify_errors"] = errors
+    return record
 
 
 def unmarked(ids, done) -> list:
@@ -170,7 +176,8 @@ def capture_range(payload: dict) -> dict:
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
     written = write_plan(plan, cwd)
-    reaffirmed = reaffirm_memories(plan["reaffirm"], cwd)
+    reaffirmed = reaffirm_memories(plan["reaffirm"], cwd, "verify" not in verdicts)
+    errors = verdicts.get("verify_errors", []) + reaffirmed.pop("verify_errors", [])
     save_state(
         state_file,
         {
@@ -188,6 +195,7 @@ def capture_range(payload: dict) -> dict:
         "noise": len(plan["noise"]),
         **verdicts,
         **reaffirmed,
+        **({"verify_errors": errors} if errors else {}),
     }
 
 
