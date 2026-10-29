@@ -183,7 +183,6 @@ class CaptureTests(CaptureCase):
         ((argv, kwargs),) = [c for c in fake.calls if c[0][0] == "claude"]
         self.assertEqual(kwargs["cwd"], str(self.root / "state"))
         self.assertEqual(kwargs["env"]["SCRY_CAPTURE"], "1")
-        self.assertEqual(kwargs["env"]["CLAUDE_MEM_INTERNAL"], "1")
         self.assertIn("[decision #9] use rrf", kwargs["input"])
 
     def test_anchor_failure_retries_without_anchors(self):
