@@ -57,9 +57,10 @@ re-chunked when its content hash changes. After touching `chunker/`, run
 will report everything unchanged. `@generated` files yield no chunks.
 
 **One SQLite file** holds everything: repos/files/chunks + FTS5 +
-sqlite-vec tables + memories. The vec tables are created at `Store::open`
-because their DDL carries the embedding dimension; `meta` stamps the
-embedding model/dim and `open` refuses a mismatch. sqlite-vec KNN cannot
+sqlite-vec tables + memories + work lists/items/state. The vec tables
+are created at `Store::open` because their DDL carries the embedding
+dimension; `meta` stamps the embedding model/dim and `open` refuses a
+mismatch. sqlite-vec KNN cannot
 express an optional partition filter, so `dense_search_*` build two SQL
 variants. Past `BINARY_COARSE_THRESHOLD` chunks, dense search runs a
 bit-vector Hamming pass then rescores floats in Rust.

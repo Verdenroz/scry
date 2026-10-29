@@ -82,9 +82,9 @@ claude plugin marketplace add /path/to/scry/plugin
 claude plugin install scry@scry
 ```
 
-Per session it spawns `scry watch` in the project (SessionStart), injects
-relevant memories into each prompt (UserPromptSubmit), and cleans up on
-exit. In a directory that is not a project (your home directory, for
+Per session it spawns `scry watch` in the project and shows the memory
+brief plus open `scry work` lists (SessionStart), injects relevant
+memories into each prompt (UserPromptSubmit), and cleans up on exit. In a directory that is not a project (your home directory, for
 example) it stands down entirely and Claude keeps its builtin tools.
 
 ## Commands
@@ -98,7 +98,8 @@ example) it stands down entirely and Claude keeps its builtin tools.
 | `scry status` | repos, files, chunks, memories on the server |
 | `scry remember` / `recall` | write / retrieve memories (`--kind`, `--pain`, `--anchor`) |
 | `scry memory helpful\|noise <id>` | reinforce or demote a memory |
-| `scry repo prune <key> [--into <key>]` | drop an index; migrate or detach its memories |
+| `scry work` / `work add\|set\|state\|close` | per-repo to-do lists and work state, shown at session start |
+| `scry repo prune <key> [--into <key>]` | drop an index; `--into` moves its memories and work lists, else memories detach and work lists are deleted |
 | `scry eval cases.toml` | Recall@10 / MRR against a golden query set |
 
 ## Development

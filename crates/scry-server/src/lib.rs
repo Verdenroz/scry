@@ -87,6 +87,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/memories/stale", post(routes::stale))
         .route("/v1/memories/gc", post(routes::gc))
         .route("/v1/memories/restore", post(routes::restore))
+        .route("/v1/work/lists", post(routes::work_lists))
+        .route("/v1/work/add", post(routes::work_add))
+        .route("/v1/work/set", post(routes::work_set))
+        .route("/v1/work/state", post(routes::work_state))
+        .route("/v1/work/close", post(routes::work_close))
         .route("/v1/web/search", post(routes::web_search))
         .route("/v1/answer", post(routes::answer))
         .layer(middleware::from_fn_with_state(

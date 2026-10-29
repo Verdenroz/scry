@@ -12,6 +12,7 @@ use scry_server::api::{
     StaleMemoryDto, StaleResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse,
     VerifyResponse,
 };
+use scry_server::api::{WorkItemResponse, WorkListResponse};
 use scry_server::{AppState, QueryCache, StoreHandle, router};
 
 const TOKEN: &str = "test-token";
@@ -690,4 +691,80 @@ async fn memory_stale_reaffirm_gc_and_restore() {
     .await
     .unwrap();
     assert_eq!(recalled.memories.len(), 1);
+}
+
+#[tokio::test]
+async fn work_lists_round_trip() {
+    let base = spawn_server().await;
+    let http = reqwest::Client::new();
+    let lists = |all: bool| {
+        let http = http.clone();
+        let base = base.clone();
+        async move {
+            post_json(
+                &http,
+                &base,
+                "/v1/work/lists",
+                serde_json::json!({ "repo_key": REPO, "all": all }),
+            )
+            .await
+            .json::<WorkListResponse>()
+            .await
+            .unwrap()
+            .lists
+        }
+    };
+    assert!(lists(false).await.is_empty());
+
+    let added: WorkItemResponse = post_json(
+        &http,
+        &base,
+        "/v1/work/add",
+        serde_json::json!({ "repo_key": REPO, "list": "ship", "task": "write tests" }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    let bad = post_json(
+        &http,
+        &base,
+        "/v1/work/add",
+        serde_json::json!({ "repo_key": REPO, "list": "ship", "task": "t", "status": "blocked" }),
+    )
+    .await;
+    assert_eq!(bad.status(), 404);
+    post_json(
+        &http,
+        &base,
+        "/v1/work/state",
+        serde_json::json!({ "repo_key": REPO, "list": "ship", "entries": [["pr", "#12"]] }),
+    )
+    .await;
+    let open = lists(false).await;
+    assert_eq!(open[0].items[0].status, "todo");
+    assert_eq!(open[0].state, vec![("pr".to_string(), "#12".to_string())]);
+
+    let set = post_json(
+        &http,
+        &base,
+        "/v1/work/set",
+        serde_json::json!({ "repo_key": REPO, "id": added.id, "status": "done", "note": "green" }),
+    )
+    .await;
+    assert_eq!(set.status(), 200);
+    assert!(lists(false).await[0].items.is_empty());
+
+    let close = |list: &str| {
+        post_json(
+            &http,
+            &base,
+            "/v1/work/close",
+            serde_json::json!({ "repo_key": REPO, "list": list }),
+        )
+    };
+    assert_eq!(close("ship").await.status(), 200);
+    assert_eq!(close("missing").await.status(), 404);
+    assert!(lists(false).await.is_empty());
+    assert_eq!(lists(true).await[0].items[0].note.as_deref(), Some("green"));
 }

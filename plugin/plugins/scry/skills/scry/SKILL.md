@@ -62,6 +62,21 @@ Write-side obligations:
   `scry memory helpful <id>`; when one was wrong or irrelevant noise, run
   `scry memory noise <id>`. This feedback drives what surfaces next time.
 
+## Work state
+
+`scry work` is the to-do list that outlives the session: open lists for
+this repo are shown at every session start. Use it instead of any built-in
+to-do tool for multi-step work.
+
+- `scry work add <list> "task" [--status doing]` prints the new item `#id`.
+- `scry work set <id> doing|done|dropped [--note "text"]` as items move.
+- `scry work state <list> branch=feat/x pr=#12 next="await review"` keeps
+  the latest value per key; `key=` clears one.
+- `scry work close <list>` once everything in it is finished;
+  `scry work show <list> --all` reads a list with its finished items.
+
+Memories are for what stays true; work state is for what is in flight.
+
 ## Options
 
 - `-m, --max-count <n>`: limit the number of results (default 10)
