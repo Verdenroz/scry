@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shlex
 from dataclasses import dataclass
@@ -10,8 +11,15 @@ INPUT_CAP = 400
 RENDER_CAP = 120_000
 EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 MEMORY_CMD = re.compile(r"\bscry\s+(recall|remember|memory)\b")
-SCRY_WEB = re.compile(r"\bscry\b[^|;&\n]*--web\b")
-HTTP_CLIENT = re.compile(r"\b(?:curl|wget)\b")
+PROVABLE_TOOLS = {"Read", "Grep", "Glob", "NotebookRead", "LSP"}
+HTTP_CLIENTS = {"curl", "wget"}
+INSTALLERS = {"pip", "pip3", "npm", "cargo", "uv"}
+VALUE_OPTIONS = {
+    "-o", "--output", "-d", "--data", "--data-raw", "--data-binary", "-H", "--header",
+}
+PROXY_OPTIONS = {"-x", "--proxy"}
+URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s'\"<>)]+", re.IGNORECASE)
+ASSIGNMENT = re.compile(r"^\w+=")
 BARE_HOST = re.compile(r"^(?:localhost|[\w-]+(?:\.[\w-]+)+|\[[0-9a-f:]+\])(?::\d+)?(?:/|$)")
 LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 WEB_OMITTED = "[web content omitted]"
@@ -25,6 +33,7 @@ class Entry:
     body: str
     edited: str = ""
     echoed: bool = False
+    provable: bool = True
 
 
 def tool_result_text(content) -> str:
@@ -44,45 +53,121 @@ def echoes_memory(name: str, args: dict) -> bool:
     return name in EDIT_TOOLS or bool(MEMORY_CMD.search(args.get("command") or ""))
 
 
-def targets_loopback_only(command: str) -> bool:
+def command_segments(command: str):
+    lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
     try:
-        tokens = shlex.split(command)
+        tokens = list(lexer)
     except ValueError:
-        return False
-    urls = [t for t in tokens if "://" in t] or [t for t in tokens if BARE_HOST.match(t)]
-    hosts = [urlsplit(u if "://" in u else f"//{u}").hostname for u in urls]
+        tokens = command.split()
+    segment, redirected = [], False
+    for token in [*tokens, ";"]:
+        if set(token) <= set("|&;()"):
+            if segment:
+                yield segment
+            segment = []
+        elif set(token) <= set("<>"):
+            redirected = True
+        elif redirected:
+            redirected = False
+        else:
+            segment.append(token.lstrip("`"))
+
+
+def commands(command: str):
+    for segment in command_segments(command):
+        while segment and ASSIGNMENT.match(segment[0]):
+            segment = segment[1:]
+        if segment:
+            yield os.path.basename(segment[0]), segment[1:]
+
+
+def host_of(target: str):
+    return urlsplit(target if "://" in target else f"//{target}").hostname
+
+
+def http_targets(args) -> list:
+    targets, tokens = [], iter(args)
+    for token in tokens:
+        if token in VALUE_OPTIONS:
+            next(tokens, None)
+        elif token in PROXY_OPTIONS:
+            targets.append(next(tokens, ""))
+        elif token.startswith("--proxy="):
+            targets.append(token.removeprefix("--proxy="))
+        elif "://" in token or BARE_HOST.match(token):
+            targets.append(token)
+    return targets
+
+
+def loopback_only(args) -> bool:
+    hosts = [host_of(t) for t in http_targets(args)]
     return bool(hosts) and all(h in LOOPBACK for h in hosts)
+
+
+def web_command(command: str) -> bool:
+    return any(
+        (name == "scry" and {"-w", "--web"} & set(args))
+        or (name in HTTP_CLIENTS and not loopback_only(args))
+        for name, args in commands(command)
+    )
+
+
+def installs_or_clones(name: str, args) -> bool:
+    return (
+        (name == "gh" and args[:1] == ["api"])
+        or name in {"http", "https"}
+        or (name == "git" and args[:1] in (["clone"], ["fetch"], ["pull"]))
+        or (name in INSTALLERS and "install" in args)
+    )
+
+
+def network_command(command: str) -> bool:
+    return (
+        web_command(command)
+        or any(host_of(u) not in LOOPBACK for u in URL.findall(command))
+        or any(installs_or_clones(n, a) for n, a in commands(command))
+    )
 
 
 def fetches_web(name: str, args: dict) -> bool:
     lowered = (name or "").lower()
-    command = args.get("command") or ""
-    if "web" in lowered or "fetch" in lowered or SCRY_WEB.search(command):
-        return True
-    return bool(HTTP_CLIENT.search(command)) and not targets_loopback_only(command)
+    return "web" in lowered or "fetch" in lowered or web_command(args.get("command") or "")
 
 
-def entry_parts(obj, echoing=frozenset(), web=frozenset()):
+def provable_source(name: str, args: dict) -> bool:
+    if name == "Bash":
+        return not network_command(args.get("command") or "")
+    return name in PROVABLE_TOOLS
+
+
+def entry_parts(obj, echoing=frozenset(), web=frozenset(), provable=frozenset()):
     content = (obj.get("message") or {}).get("content")
     if obj.get("type") == "user":
         if obj.get("isMeta") or obj.get("isCompactSummary"):
             return
         if isinstance(content, str):
-            yield "user", content[:TEXT_CAP], "", False
+            yield "user", content[:TEXT_CAP], "", False, True
             return
         for block in content or []:
             if block.get("type") == "tool_result":
                 call_id = block.get("tool_use_id")
                 if call_id in web:
-                    yield "tool_result", WEB_OMITTED, "", True
+                    yield "tool_result", WEB_OMITTED, "", True, False
                     continue
-                yield "tool_result", result_text(block), "", call_id in echoing
+                yield (
+                    "tool_result",
+                    result_text(block),
+                    "",
+                    call_id in echoing,
+                    call_id in provable,
+                )
             elif block.get("type") == "text":
-                yield "user", block.get("text", "")[:TEXT_CAP], "", False
+                yield "user", block.get("text", "")[:TEXT_CAP], "", False, True
     elif obj.get("type") == "assistant":
         for block in content or []:
             if block.get("type") == "text":
-                yield "assistant", block.get("text", "")[:TEXT_CAP], "", False
+                yield "assistant", block.get("text", "")[:TEXT_CAP], "", False, True
             elif block.get("type") == "tool_use":
                 name = block.get("name")
                 args = block.get("input") or {}
@@ -93,6 +178,7 @@ def entry_parts(obj, echoing=frozenset(), web=frozenset()):
                     f"{name} {shown}",
                     edited if name in EDIT_TOOLS else "",
                     False,
+                    True,
                 )
 
 
@@ -121,6 +207,7 @@ def load(path: str, offset: int):
     entries = []
     echoing = set()
     web = set()
+    provable = set()
     total = 0
     for line_no, obj in enumerate(read_lines(path), 1):
         if not obj:
@@ -130,10 +217,11 @@ def load(path: str, offset: int):
             continue
         echoing |= calls_matching(obj, echoes_memory)
         web |= calls_matching(obj, fetches_web)
+        provable |= calls_matching(obj, provable_source)
         if total <= offset:
             continue
-        for kind, body, edited, echoed in entry_parts(obj, echoing, web):
-            entries.append(Entry(len(entries) + 1, kind, body, edited, echoed))
+        for parts in entry_parts(obj, echoing, web, provable):
+            entries.append(Entry(len(entries) + 1, *parts))
     return entries, total
 
 

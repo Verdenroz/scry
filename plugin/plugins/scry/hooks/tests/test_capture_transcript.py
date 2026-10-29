@@ -38,7 +38,7 @@ class LoadTests(unittest.TestCase):
         }
         self.assertEqual(list(ct.entry_parts(summary)), [])
         self.assertEqual(
-            list(ct.entry_parts(blocks)), [("user", "always use X", "", False)]
+            list(ct.entry_parts(blocks)), [("user", "always use X", "", False, True)]
         )
 
     def test_list_content_tool_result_is_joined(self):
@@ -162,6 +162,49 @@ class WebTests(unittest.TestCase):
         self.assertEqual(entry.body, "[lesson #12] echoed")
 
 
+class ProvableTests(unittest.TestCase):
+    def test_allowlisted_sources_are_provable(self):
+        for tool, args in (
+            ("Read", {"file_path": "/a"}),
+            ("Grep", {"pattern": "x"}),
+            ("Glob", {"pattern": "*"}),
+            ("NotebookRead", {}),
+            ("LSP", {}),
+            ("Bash", {"command": "cat foo"}),
+            ("Bash", {"command": "cargo build"}),
+            ("Bash", {"command": "curl -s http://localhost:7399/health"}),
+        ):
+            self.assertTrue(results_after(tool, args).provable, tool)
+
+    def test_other_tools_are_not_provable(self):
+        for tool in ("Agent", "Task", "Skill", "WebFetch", "mcp__ref__lookup", "Edit"):
+            self.assertFalse(results_after(tool, {}).provable, tool)
+
+    def test_network_commands_are_not_provable(self):
+        for command in (
+            "curl https://x.dev",
+            "cat x | wget https://x.dev",
+            "scry -w q",
+            "scry --web q",
+            "gh api repos/a/b",
+            "http GET example.com",
+            "git clone git@github.com:a/b.git",
+            "git pull",
+            "pip install requests",
+            "cargo install ripgrep",
+            "npm install left-pad",
+            "uv pip install x",
+            "echo https://example.com/x",
+        ):
+            entry = results_after("Bash", {"command": command})
+            self.assertFalse(entry.provable, command)
+
+    def test_result_without_a_known_call_is_not_provable(self):
+        obj = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
+        ((_, _, _, _, provable),) = ct.entry_parts(obj)
+        self.assertFalse(provable)
+
+
 def web_transcript():
     handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
     use = {
@@ -205,7 +248,7 @@ class RenderTests(unittest.TestCase):
                 "content": [{"type": "tool_result", "content": "a" * 3000 + "END"}]
             },
         }
-        ((_, body, _, _),) = ct.entry_parts(obj)
+        ((_, body, _, _, _),) = ct.entry_parts(obj)
         self.assertEqual(len(body), ct.RESULT_TAIL + 3)
         self.assertTrue(body.startswith("...") and body.endswith("END"))
 

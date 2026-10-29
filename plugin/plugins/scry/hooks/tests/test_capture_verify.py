@@ -14,6 +14,7 @@ KEPT = {
     4: Entry(
         4, "tool_result", "[lesson #12] vec partition keys come first", echoed=True
     ),
+    5: Entry(5, "tool_result", "agent report: the cache is keyed by path", provable=False),
 }
 QUOTE = "linker `cc` not found on this machine"
 
@@ -64,6 +65,27 @@ class EchoTests(unittest.TestCase):
             memory("lesson", cited(4, "vec partition keys come first")), KEPT, set()
         )
         self.assertEqual(out["kind"], "episode")
+
+
+class ProvableTests(unittest.TestCase):
+    QUOTE = "the cache is keyed by path"
+
+    def test_unprovable_result_holds_for_no_citation(self):
+        self.assertFalse(cv.holds(cited(5, self.QUOTE), KEPT))
+        self.assertFalse(cv.holds(cited(5, self.QUOTE), KEPT, {"tool_result"}))
+
+    def test_fact_citing_unprovable_result_downgrades(self):
+        out = cv.settle(memory("fact", cited(5, self.QUOTE)), KEPT, set())
+        self.assertEqual(out["kind"], "episode")
+        self.assertIsNone(out["evidence"])
+
+    def test_unprovable_result_cannot_reinforce_contradict_or_reaffirm(self):
+        claims = [{"id": 7, "evidence": cited(5, self.QUOTE)}]
+        self.assertEqual(cv.proven_ids(claims, KEPT, {"tool_result", "user"}, {7}), [])
+        self.assertEqual(cv.reaffirmable(claims, KEPT, {7: ("fact", "c")}), [])
+
+    def test_user_prompt_stays_valid(self):
+        self.assertTrue(cv.holds(cited(1, "run the linker before pushing"), KEPT, {"user"}))
 
 
 class SettleTests(unittest.TestCase):

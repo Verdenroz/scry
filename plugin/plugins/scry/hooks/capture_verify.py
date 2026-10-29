@@ -23,6 +23,8 @@ def holds(evidence, kept, kinds=None) -> bool:
         return False
     if entry.echoed or (kinds is not None and entry.kind not in kinds):
         return False
+    if entry.kind == "tool_result" and not entry.provable:
+        return False
     return quote in normalize(entry.body)
 
 
