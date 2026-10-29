@@ -538,12 +538,12 @@ async fn memory_stale_reaffirm_gc_and_restore() {
     assert!(stale_list(&http, &base, &[]).await.is_empty());
 
     let noisy = remembered.id;
-    for _ in 0..2 {
+    for scope in [REPO, "github.com/test/other"] {
         post_json(
             &http,
             &base,
             "/v1/memories/feedback",
-            serde_json::json!({ "id": noisy, "helpful": false, "repo_key": REPO }),
+            serde_json::json!({ "id": noisy, "helpful": false, "repo_key": scope }),
         )
         .await;
     }

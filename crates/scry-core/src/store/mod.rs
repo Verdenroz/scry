@@ -263,6 +263,7 @@ fn migrate_v4_to_v5(dim: usize) -> String {
     format!(
         "BEGIN;
         ALTER TABLE memories ADD COLUMN helpful_at INTEGER;
+        UPDATE memories SET helpful_at = last_access WHERE helpful_count > 0;
         UPDATE memories SET stale_at = unixepoch()
             WHERE status = 'stale' AND stale_at IS NULL;
         CREATE TABLE memory_suppressions (
@@ -368,7 +369,8 @@ mod tests {
                      CREATE VIRTUAL TABLE vec_memories USING vec0(
                          memory_id INTEGER PRIMARY KEY,
                          embedding float[8] distance_metric=cosine);
-                     INSERT INTO memories (kind, content) VALUES ('lesson', 'old');
+                     INSERT INTO memories (kind, content, helpful_count)
+                         VALUES ('lesson', 'old', 1);
                      INSERT INTO memories (kind, content, status)
                          VALUES ('lesson', 'legacy stale', 'stale');
                      UPDATE memories SET repo_id = 1 WHERE content = 'legacy stale';
@@ -417,6 +419,15 @@ mod tests {
             .unwrap();
         assert_eq!((source.as_str(), noise), ("agent", 0));
 
+        let helpful_at: Option<i64> = store
+            .conn
+            .query_row(
+                "SELECT helpful_at FROM memories WHERE content = 'old'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(helpful_at.is_some());
         let stale_at: Option<i64> = store
             .conn
             .query_row(

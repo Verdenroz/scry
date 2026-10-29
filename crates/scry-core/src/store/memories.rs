@@ -37,7 +37,6 @@ pub struct MemoryRow {
     pub access_count: i64,
     pub helpful_count: i64,
     pub stale_at: Option<i64>,
-    pub noise_count: i64,
     pub superseded_by: Option<i64>,
     pub helpful_at: Option<i64>,
 }
@@ -68,7 +67,7 @@ fn not_suppressed(repo_id: Option<i64>) -> String {
     )
 }
 
-pub(super) const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at, noise_count, superseded_by, helpful_at";
+pub(super) const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at, superseded_by, helpful_at";
 
 pub(super) fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
     Ok(MemoryRow {
@@ -82,9 +81,8 @@ pub(super) fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
         access_count: row.get(7)?,
         helpful_count: row.get(8)?,
         stale_at: row.get(9)?,
-        noise_count: row.get(10)?,
-        superseded_by: row.get(11)?,
-        helpful_at: row.get(12)?,
+        superseded_by: row.get(10)?,
+        helpful_at: row.get(11)?,
     })
 }
 

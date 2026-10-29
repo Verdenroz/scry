@@ -6,7 +6,7 @@ use crate::config::MemoryConfig;
 use crate::memory::{now_epoch, recall_score};
 use crate::store::{MemoryRow, Store};
 
-const NOISE_LIMIT: i64 = 2;
+const NOISE_SCOPES: i64 = 2;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GcReport {
@@ -35,8 +35,10 @@ pub fn gc(store: &mut Store, config: &MemoryConfig, dry_run: bool) -> Result<GcR
     let now = now_epoch();
     let mut report = GcReport::default();
     let mut ids = Vec::new();
+    let suppressed = store.suppression_scope_counts()?;
     for row in store.archivable_candidates()? {
-        let Some(rule) = matching_rule(&row, config, now) else {
+        let scopes = suppressed.get(&row.id).copied().unwrap_or(0);
+        let Some(rule) = matching_rule(&row, scopes, config, now) else {
             continue;
         };
         match rule {
@@ -53,7 +55,7 @@ pub fn gc(store: &mut Store, config: &MemoryConfig, dry_run: bool) -> Result<GcR
     Ok(report)
 }
 
-fn matching_rule(row: &MemoryRow, config: &MemoryConfig, now: i64) -> Option<Rule> {
+fn matching_rule(row: &MemoryRow, scopes: i64, config: &MemoryConfig, now: i64) -> Option<Rule> {
     if row.superseded_by.is_some() {
         return Some(Rule::Superseded);
     }
@@ -71,7 +73,7 @@ fn matching_rule(row: &MemoryRow, config: &MemoryConfig, now: i64) -> Option<Rul
     {
         return Some(Rule::Episode);
     }
-    if row.noise_count >= NOISE_LIMIT && row.helpful_count == 0 {
+    if scopes >= NOISE_SCOPES && row.helpful_count == 0 {
         return Some(Rule::Noise);
     }
     None
@@ -146,17 +148,11 @@ mod tests {
         );
 
         let noisy = add(&mut store, "lesson", 0.8);
-        exec(
-            &store,
-            "UPDATE memories SET noise_count = 2 WHERE id = ?1",
-            noisy,
-        );
+        store.memory_feedback(noisy, false, Some(1)).unwrap();
+        store.memory_feedback(noisy, false, Some(2)).unwrap();
         let once = add(&mut store, "lesson", 0.9);
-        exec(
-            &store,
-            "UPDATE memories SET noise_count = 1 WHERE id = ?1",
-            once,
-        );
+        store.memory_feedback(once, false, Some(1)).unwrap();
+        store.memory_feedback(once, false, Some(1)).unwrap();
 
         let config = MemoryConfig::default();
         let expected = GcReport {

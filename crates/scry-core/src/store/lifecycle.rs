@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{OptionalExtension, params};
 
 use super::memories::{ROW_COLUMNS, memory_row, scope_partition};
@@ -114,6 +116,17 @@ impl Store {
             .query_map([], memory_row)?
             .collect::<std::result::Result<_, _>>()?;
         Ok(rows)
+    }
+
+    /// Distinct scopes that have suppressed each memory.
+    pub fn suppression_scope_counts(&self) -> Result<HashMap<i64, i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT memory_id, count(*) FROM memory_suppressions GROUP BY memory_id")?;
+        let counts = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(counts)
     }
 
     /// Archives memories: the text stays, the vector goes.
@@ -305,7 +318,6 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(store.memory(id).unwrap().unwrap().noise_count, 0);
         assert!(store.restore_memory(id, &query).is_err());
     }
 

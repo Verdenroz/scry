@@ -298,7 +298,6 @@ mod tests {
             access_count: access,
             helpful_count: helpful,
             stale_at: None,
-            noise_count: 0,
             superseded_by: None,
             helpful_at: None,
         }
