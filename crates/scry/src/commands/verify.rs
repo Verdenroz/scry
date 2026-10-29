@@ -5,10 +5,11 @@ use scry_core::config::Config;
 use scry_server::api::{VerifyRequest, VerifyResponse};
 use serde::Deserialize;
 
+use super::join_rest;
 use crate::client::ApiClient;
 
 const USAGE: &str =
-    "usage: scry memory verify \"claim\" --evidence \"text\" | --eval <pairs.jsonl>";
+    "usage: scry memory verify [--evidence \"text\"] [--] \"claim\" | --eval <pairs.jsonl>";
 
 #[derive(Deserialize)]
 struct Pair {
@@ -24,17 +25,23 @@ struct Scored {
     millis: f64,
 }
 
-pub async fn run(args: &[String]) -> Result<()> {
+fn parse_args(args: &[String]) -> (Option<String>, Option<String>, Option<String>) {
     let (mut claim, mut evidence, mut eval) = (None, None, None);
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--evidence" => evidence = it.next().cloned(),
             "--eval" => eval = it.next().cloned(),
+            "--" => claim = claim.or(join_rest(it.by_ref())),
             text if !text.starts_with('-') && claim.is_none() => claim = Some(text.to_string()),
             _ => {}
         }
     }
+    (claim, evidence, eval)
+}
+
+pub async fn run(args: &[String]) -> Result<()> {
+    let (claim, evidence, eval) = parse_args(args);
     let client = ApiClient::new(&Config::load(None)?.client);
     if let Some(path) = eval {
         return calibrate(&client, &path).await;
@@ -227,6 +234,17 @@ mod tests {
         };
         assert!(score_outcome(1, Ok(unconfigured), 5.0, &mut errors).is_err());
         assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn separator_takes_the_rest_as_the_claim() {
+        let args: Vec<String> = ["--evidence", "ev", "--", "uses", "--flag", "-x"]
+            .map(String::from)
+            .to_vec();
+        let (claim, evidence, eval) = parse_args(&args);
+        assert_eq!(claim.as_deref(), Some("uses --flag -x"));
+        assert_eq!(evidence.as_deref(), Some("ev"));
+        assert_eq!(eval, None);
     }
 
     #[test]

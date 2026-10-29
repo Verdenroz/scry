@@ -43,14 +43,18 @@ pub async fn stale(args: &[String]) -> Result<()> {
         .await?;
     for memory in response.memories {
         println!(
-            "[{} #{}] (stale) {} {}",
+            "[{} #{}] (stale)\t{}\t{}",
             memory.kind,
             memory.id,
             memory.relpaths.join(","),
-            memory.content
+            escape_field(&memory.content)
         );
     }
     Ok(())
+}
+
+fn escape_field(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('\n', "\\n")
 }
 
 pub async fn gc(args: &[String]) -> Result<()> {
@@ -77,4 +81,14 @@ pub async fn restore(args: &[String]) -> Result<()> {
     ctx.client.restore(&RestoreRequest { id }).await?;
     println!("restored #{id}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fields_escape_backslashes_before_newlines() {
+        assert_eq!(escape_field("a\\b\nc"), "a\\\\b\\nc");
+    }
 }

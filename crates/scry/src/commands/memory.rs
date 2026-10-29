@@ -3,7 +3,7 @@ use scry_server::api::{
     AnchorDto, BriefRequest, FeedbackRequest, RecallRequest, RememberRequest, SupersedeRequest,
 };
 
-use super::{memory_scope_key, repo_context};
+use super::{join_rest, memory_scope_key, repo_context};
 
 const REMEMBER_USAGE: &str = "usage: scry remember \"content\" [--kind lesson|decision|convention|skill|fact|episode] [--pain 0-10] [--cost 0-10] [--anchor path[:start-end]] [--source agent|capture] [--evidence \"text\"] [--global]";
 
@@ -25,14 +25,7 @@ pub async fn remember(args: &[String]) -> Result<()> {
             "--source" => source = it.next().cloned().unwrap_or(source),
             "--evidence" => evidence = it.next().cloned(),
             "--global" => global = true,
-            "--" => {
-                let rest = it
-                    .by_ref()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                content = content.or((!rest.is_empty()).then_some(rest));
-            }
+            "--" => content = content.or(join_rest(it.by_ref())),
             "--anchor" => {
                 let Some(spec) = it.next() else {
                     bail!(REMEMBER_USAGE);
@@ -104,14 +97,7 @@ pub async fn recall(args: &[String]) -> Result<()> {
                 min_score = it.next().and_then(|v| v.parse().ok()).unwrap_or(min_score);
             }
             "--no-touch" => touch = false,
-            "--" => {
-                let rest = it
-                    .by_ref()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                query = query.or((!rest.is_empty()).then_some(rest));
-            }
+            "--" => query = query.or(join_rest(it.by_ref())),
             text if !text.starts_with('-') && query.is_none() => query = Some(text.to_string()),
             _ => {}
         }

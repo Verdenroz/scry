@@ -37,6 +37,13 @@ pub fn memory_scope_key(identity: &RepoIdentity) -> String {
     }
 }
 
+/// Everything after a `--` separator, joined into one argument; `None` when
+/// nothing follows.
+pub fn join_rest<'a>(rest: impl Iterator<Item = &'a String>) -> Option<String> {
+    let joined = rest.map(String::as_str).collect::<Vec<_>>().join(" ");
+    (!joined.is_empty()).then_some(joined)
+}
+
 pub fn repo_context() -> Result<RepoContext> {
     let config = Config::load(None)?;
     let cwd = std::env::current_dir()?;
