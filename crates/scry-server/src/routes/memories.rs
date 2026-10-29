@@ -3,16 +3,17 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use scry_core::memory::{
-    AnchorSpec, MemoryDraft, MemoryHit, brief as build_brief, embed_text, recall_with_vector,
-    remember_with_embedding, validate_kind, validate_source,
+    AnchorSpec, MemoryDraft, MemoryHit, brief as build_brief, embed_text,
+    reaffirm as reaffirm_memory, recall_with_vector, remember_with_embedding, validate_kind,
+    validate_source,
 };
 use scry_core::memory_gc;
 use scry_core::store::Scope;
 
 use crate::AppState;
 use crate::api::{
-    BriefRequest, BriefResponse, FeedbackRequest, FeedbackResponse, GcRequest, GcResponse,
-    MemoryDto, MemoryStatsResponse, ReaffirmRequest, ReaffirmResponse, RecallRequest,
+    AnchorDto, BriefRequest, BriefResponse, FeedbackRequest, FeedbackResponse, GcRequest,
+    GcResponse, MemoryDto, MemoryStatsResponse, ReaffirmRequest, ReaffirmResponse, RecallRequest,
     RecallResponse, RememberRequest, RememberResponse, RestoreRequest, RestoreResponse,
     SourceStatsDto, StaleMemoryDto, StaleRequest, StaleResponse, SupersedeRequest,
     SupersedeResponse, VerifyRequest, VerifyResponse,
@@ -47,15 +48,7 @@ pub async fn remember(
                 cost: request.cost,
                 source: request.source,
                 evidence: request.evidence,
-                anchors: request
-                    .anchors
-                    .into_iter()
-                    .map(|a| AnchorSpec {
-                        relpath: a.relpath,
-                        start_line: a.start_line,
-                        end_line: a.end_line,
-                    })
-                    .collect(),
+                anchors: anchor_specs(request.anchors),
             };
             remember_with_embedding(store, draft, embedding)
         })
@@ -204,7 +197,14 @@ pub async fn reaffirm(
 ) -> Result<Json<ReaffirmResponse>, ApiError> {
     state
         .store
-        .call(move |store| store.reaffirm_memory(request.id, &request.evidence))
+        .call(move |store| {
+            reaffirm_memory(
+                store,
+                request.id,
+                &request.evidence,
+                &anchor_specs(request.anchors),
+            )
+        })
         .await
         .map_err(not_found_if_config)?;
     Ok(Json(ReaffirmResponse { id: request.id }))
@@ -275,4 +275,15 @@ fn not_found_if_config(error: scry_core::Error) -> ApiError {
         scry_core::Error::Config(message) => ApiError::NotFound(message),
         other => other.into(),
     }
+}
+
+fn anchor_specs(anchors: Vec<AnchorDto>) -> Vec<AnchorSpec> {
+    anchors
+        .into_iter()
+        .map(|a| AnchorSpec {
+            relpath: a.relpath,
+            start_line: a.start_line,
+            end_line: a.end_line,
+        })
+        .collect()
 }

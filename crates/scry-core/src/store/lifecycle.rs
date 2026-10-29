@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use rusqlite::{OptionalExtension, ToSql, params};
 
-use super::memories::{ANCHOR_DRIFTED, NOISE_DECAY, ROW_COLUMNS, memory_row, scope_partition};
+use super::memories::{
+    ANCHOR_DRIFTED, MemoryAnchor, NOISE_DECAY, ROW_COLUMNS, insert_anchors, memory_row,
+    scope_partition,
+};
 use super::{MemoryRow, Store, vector_bytes};
 use crate::{Error, Result};
 
@@ -65,15 +68,21 @@ impl Store {
     }
 
     /// Re-hashes a stale memory's anchors to the current indexed files and
-    /// marks it live. Fails, changing nothing, unless the memory is stale,
-    /// not superseded, and every anchor still resolves to an indexed file.
-    pub fn reaffirm_memory(&mut self, id: i64, evidence: &str) -> Result<()> {
+    /// marks it live. Non-empty `anchors` replace the existing ones first.
+    /// Fails, changing nothing, unless the memory is stale, not superseded,
+    /// and every anchor resolves to an indexed file.
+    pub fn reaffirm_memory(
+        &mut self,
+        id: i64,
+        evidence: &str,
+        anchors: &[MemoryAnchor],
+    ) -> Result<()> {
         let tx = self.conn.transaction()?;
-        let (status, superseded): (String, Option<i64>) = tx
+        let (status, superseded, repo_id): (String, Option<i64>, Option<i64>) = tx
             .query_row(
-                "SELECT status, superseded_by FROM memories WHERE id = ?1",
+                "SELECT status, superseded_by, repo_id FROM memories WHERE id = ?1",
                 [id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?
             .ok_or_else(|| Error::Config(format!("no memory #{id}")))?;
@@ -81,6 +90,10 @@ impl Store {
             return Err(Error::Config(format!(
                 "memory #{id} is not stale or is superseded"
             )));
+        }
+        if !anchors.is_empty() {
+            tx.execute("DELETE FROM memory_anchors WHERE memory_id = ?1", [id])?;
+            insert_anchors(&tx, id, repo_id, anchors)?;
         }
         let missing: Option<String> = tx
             .query_row(
@@ -253,11 +266,11 @@ mod tests {
         let mut store = Store::open_in_memory("m", 4).unwrap();
         let repo = store.upsert_repo("github.com/x/y").unwrap();
         let id = anchored(&mut store, repo, "a.rs");
-        assert!(store.reaffirm_memory(id, "still true").is_err());
+        assert!(store.reaffirm_memory(id, "still true", &[]).is_err());
 
         store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
         store.mark_stale_anchors(repo, "a.rs").unwrap();
-        store.reaffirm_memory(id, "still true").unwrap();
+        store.reaffirm_memory(id, "still true", &[]).unwrap();
 
         let row = store.memory(id).unwrap().unwrap();
         assert_eq!((row.status.as_str(), row.stale_at), ("live", None));
@@ -283,14 +296,45 @@ mod tests {
         store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
         store.mark_stale_anchors(repo, "a.rs").unwrap();
         store.delete_file(repo, "a.rs").unwrap();
-        let err = store.reaffirm_memory(id, "e").unwrap_err();
+        let err = store.reaffirm_memory(id, "e", &[]).unwrap_err();
         assert!(err.to_string().contains("not in the index"));
 
         store.upsert_file(repo, "a.rs", "new", 1, 0).unwrap();
         let newer = store.add_memory(&memory(Some(repo), 0.2), &[]).unwrap();
         store.supersede_memory(id, newer).unwrap();
-        assert!(store.reaffirm_memory(id, "e").is_err());
+        assert!(store.reaffirm_memory(id, "e", &[]).is_err());
         assert_eq!(store.memory(id).unwrap().unwrap().status, "stale");
+    }
+
+    #[test]
+    fn reaffirm_with_anchors_replaces_a_deleted_anchor() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        let repo = store.upsert_repo("github.com/x/y").unwrap();
+        let id = anchored(&mut store, repo, "gone.md");
+        store.upsert_file(repo, "gone.md", "new", 1, 0).unwrap();
+        store.mark_stale_anchors(repo, "gone.md").unwrap();
+        store.delete_file(repo, "gone.md").unwrap();
+        store.upsert_file(repo, "b.rs", "b", 1, 0).unwrap();
+        let anchor = MemoryAnchor {
+            relpath: "b.rs".to_string(),
+            start_line: Some(3),
+            end_line: Some(9),
+            xxh64: "b".to_string(),
+        };
+        store.reaffirm_memory(id, "moved", &[anchor]).unwrap();
+
+        assert_eq!(store.memory(id).unwrap().unwrap().status, "live");
+        let anchors: Vec<(String, Option<u32>)> = store
+            .conn
+            .prepare("SELECT relpath, start_line FROM memory_anchors WHERE memory_id = ?1")
+            .unwrap()
+            .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(anchors, vec![("b.rs".to_string(), Some(3))]);
+        store.upsert_file(repo, "b.rs", "b2", 1, 0).unwrap();
+        assert_eq!(store.mark_stale_anchors(repo, "b.rs").unwrap(), 1);
     }
 
     #[test]

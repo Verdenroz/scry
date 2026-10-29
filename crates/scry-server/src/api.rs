@@ -244,6 +244,8 @@ pub struct SourceStatsDto {
 pub struct ReaffirmRequest {
     pub id: i64,
     pub evidence: String,
+    #[serde(default)]
+    pub anchors: Vec<AnchorDto>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

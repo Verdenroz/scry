@@ -133,6 +133,29 @@ pub(super) fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
     })
 }
 
+pub(super) fn insert_anchors(
+    conn: &Connection,
+    memory_id: i64,
+    repo_id: Option<i64>,
+    anchors: &[MemoryAnchor],
+) -> Result<()> {
+    for anchor in anchors {
+        conn.execute(
+            "INSERT INTO memory_anchors (memory_id, repo_id, relpath, start_line, end_line, xxh64)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                memory_id,
+                repo_id,
+                anchor.relpath,
+                anchor.start_line,
+                anchor.end_line,
+                anchor.xxh64
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 impl Store {
     pub fn add_memory(&mut self, memory: &NewMemory, anchors: &[MemoryAnchor]) -> Result<i64> {
         let tx = self.conn.transaction()?;
@@ -161,20 +184,7 @@ impl Store {
                 vector_bytes(&memory.embedding)
             ],
         )?;
-        for anchor in anchors {
-            tx.execute(
-                "INSERT INTO memory_anchors (memory_id, repo_id, relpath, start_line, end_line, xxh64)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    memory_id,
-                    memory.repo_id,
-                    anchor.relpath,
-                    anchor.start_line,
-                    anchor.end_line,
-                    anchor.xxh64
-                ],
-            )?;
-        }
+        insert_anchors(&tx, memory_id, memory.repo_id, anchors)?;
         tx.commit()?;
         Ok(memory_id)
     }
