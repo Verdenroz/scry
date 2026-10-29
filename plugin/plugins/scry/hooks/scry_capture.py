@@ -84,60 +84,60 @@ def write_plan(plan: dict, cwd: str) -> int:
     return written
 
 
-def verify_memories(memories, cwd: str):
-    out, scores, errors, downgraded = [], [], [], 0
-    configured = True
-    for memory in memories:
-        if memory["kind"] not in capture_verify.PROOF_KINDS or not configured:
-            out.append(memory)
-            continue
+class Verifier:
+    def __init__(self, cwd: str):
+        self.cwd = cwd
+        self.configured = True
+        self.errors = []
+
+    def check(self, claim: str, source: str):
+        if not self.configured:
+            return "not configured", None
         try:
-            verdict, score = capture_scry.verify(
-                memory["content"], memory["source"], cwd
-            )
+            verdict, score = capture_scry.verify(claim, source, self.cwd)
         except Exception as exc:
-            errors.append(f"{type(exc).__name__}: {exc}")
-            verdict, score = "unsupported", None
-        if verdict == "not configured":
-            configured = False
+            self.errors.append(f"{type(exc).__name__}: {exc}")
+            return "error", None
+        self.configured = verdict != "not configured"
+        return verdict, score
+
+
+def verify_memories(memories, verifier: Verifier):
+    out, scores, downgraded = [], [], 0
+    for memory in memories:
+        if memory["kind"] not in capture_verify.PROOF_KINDS:
             out.append(memory)
             continue
-        scores.append([memory["kind"], score])
-        if verdict == "unsupported":
+        verdict, score = verifier.check(memory["content"], memory["source"])
+        if verdict != "not configured":
+            scores.append([memory["kind"], score])
+        if verdict in ("unsupported", "error"):
             downgraded += 1
             memory = capture_verify.downgrade(memory)
         out.append(memory)
-    record = {"verified": scores, "downgraded": downgraded}
-    if not configured:
-        record["verify"] = "not configured"
-    if errors:
-        record["verify_errors"] = errors
-    return out, record
+    return out, {"verified": scores, "downgraded": downgraded}
 
 
-def reaffirm_memories(claims, cwd: str, configured: bool = True) -> dict:
-    done, failed, unsupported, errors = [], [], [], []
+def reaffirm_memories(claims, verifier: Verifier, cwd: str) -> dict:
+    done, failed, unsupported = [], [], []
     for claim in claims:
+        verdict, _ = verifier.check(claim["content"], claim["source"])
+        if verdict == "unsupported":
+            unsupported.append(claim["id"])
+            continue
         try:
-            if configured:
-                verdict, _ = capture_scry.verify(claim["content"], claim["source"], cwd)
-                configured = verdict != "not configured"
-                if verdict == "unsupported":
-                    unsupported.append(claim["id"])
-                    continue
-            ok = capture_scry.reaffirm(claim["id"], claim["evidence"], cwd)
+            ok = verdict != "error" and capture_scry.reaffirm(
+                claim["id"], claim["evidence"], cwd
+            )
         except Exception as exc:
-            errors.append(f"{type(exc).__name__}: {exc}")
+            verifier.errors.append(f"{type(exc).__name__}: {exc}")
             ok = False
         (done if ok else failed).append(claim["id"])
-    record = {
+    return {
         "reaffirmed": done,
         "reaffirm_failed": failed,
         "reaffirm_unsupported": unsupported,
     }
-    if errors:
-        record["verify_errors"] = errors
-    return record
 
 
 def unmarked(ids, done) -> list:
@@ -151,7 +151,7 @@ def stale_memories(edited, cwd: str):
         return {}, {"index_error": error}
     try:
         return capture_scry.stale(sorted(edited), cwd), {}
-    except RuntimeError as exc:
+    except (RuntimeError, subprocess.TimeoutExpired) as exc:
         return {}, {"stale_error": str(exc)}
 
 
@@ -183,12 +183,12 @@ def capture_range(payload: dict) -> dict:
     plan = capture_verify.plan(output, kept, edited, set(existing), stale)
     if "index_error" in lookup:
         plan["memories"] = [{**m, "anchors": []} for m in plan["memories"]]
-    plan["memories"], verdicts = verify_memories(plan["memories"], cwd)
+    verifier = Verifier(cwd)
+    plan["memories"], verdicts = verify_memories(plan["memories"], verifier)
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
     written = write_plan(plan, cwd)
-    reaffirmed = reaffirm_memories(plan["reaffirm"], cwd, "verify" not in verdicts)
-    errors = verdicts.get("verify_errors", []) + reaffirmed.pop("verify_errors", [])
+    reaffirmed = reaffirm_memories(plan["reaffirm"], verifier, cwd)
     save_state(
         state_file,
         {
@@ -207,7 +207,8 @@ def capture_range(payload: dict) -> dict:
         **lookup,
         **verdicts,
         **reaffirmed,
-        **({"verify_errors": errors} if errors else {}),
+        **({"verify": "not configured"} if not verifier.configured else {}),
+        **({"verify_errors": verifier.errors} if verifier.errors else {}),
     }
 
 

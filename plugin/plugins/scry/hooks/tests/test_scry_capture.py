@@ -11,6 +11,7 @@ from unittest import mock
 HOOKS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOOKS))
 
+import capture_scry
 import scry_capture
 
 REAL_RUN = subprocess.run
@@ -58,6 +59,8 @@ class Fake:
                 raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
             code = self.index_code
         elif argv[:3] == ["scry", "memory", "stale"]:
+            if self.stale_code is None:
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
             out, code = self.stale, self.stale_code
         elif argv[:3] == ["scry", "memory", "reaffirm"]:
             out, code = f"reaffirmed #{argv[3]}", self.reaffirm_code
@@ -464,6 +467,40 @@ class ReaffirmTests(CaptureCase):
         self.assertEqual((result["helpful"], result["noise"]), (0, 0))
         self.assertEqual(fake.scry("scry", "memory", "helpful"), [])
         self.assertEqual(fake.scry("scry", "memory", "noise"), [])
+
+    def test_stale_id_shown_by_the_brief_still_cannot_be_marked(self):
+        claim = {"id": 9, "evidence": {"entry": 5, "quote": QUOTE}}
+        out = {
+            "memories": [],
+            "reinforce": [claim],
+            "contradict": [claim],
+            "reaffirm": [],
+        }
+        fake = Fake(out, stale="[decision #9] (stale)\tsrc/lib.rs\tuse rrf\n")
+        result = self.run_capture(fake)
+        self.assertEqual((result["helpful"], result["noise"]), (0, 0))
+        self.assertEqual(fake.scry("scry", "memory", "helpful"), [])
+
+    def test_stale_tsv_unescapes_tabs_and_splits_paths_on_unescaped_commas(self):
+        field = "a\\,b.rs,c\\\\,d.rs"
+        self.assertEqual(
+            capture_scry.split_paths(field), ["a,b.rs", "c\\", "d.rs"]
+        )
+        line = "[fact #31] (stale)\ta\\,b.rs\tcol\\tumn\\r\\n\n"
+        fake = Fake(reaffirm_output(), stale=line)
+        with mock.patch("subprocess.run", fake):
+            self.assertEqual(
+                capture_scry.stale(["a,b.rs"], "."),
+                {31: ("fact", "col\tumn\r\n")},
+            )
+
+    def test_stale_timeout_is_logged_and_the_pass_continues(self):
+        out = reaffirm_output()
+        out["memories"] = [lesson()]
+        fake = Fake(out, stale=STALE_LINE, stale_code=None)
+        result = self.run_capture(fake)
+        self.assertIn("stale_error", result)
+        self.assertEqual(result["written"], 1)
 
     def assert_index_failure_is_survived(self, code):
         out = reaffirm_output()

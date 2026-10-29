@@ -85,6 +85,7 @@ def reaffirmable(claims, kept, stale, superseded=()) -> list:
 def plan(output, kept, edited, shown, stale=()):
     memories = [settle(m, kept, edited) for m in output.get("memories") or []]
     replaceable = set(shown) | set(stale)
+    shown = set(shown) - set(stale)
     memories = [
         {**m, "supersedes": m["supersedes"] if m["supersedes"] in replaceable else None}
         for m in memories[:MAX_MEMORIES]
