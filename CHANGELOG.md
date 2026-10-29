@@ -10,10 +10,62 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### ✨ Features
+
+- plugin: Automatic memory capture and session brief (#12)
+- Memory scopes, provenance, brief, claim verifier (#11)
+- plugin: Steer agents to recall before digging (#10)
+
 ### 🔧 Internal
 
+- Regenerate soothfast outputs (#8)
 - Disable credential persistence in soothfast checkout (#7)
 - Move perf gate and changelog onto the soothfast action (#6)
+
+---
+
+### 🔍 API surface
+
+```
+# scry-core
+ADDED    scry_core::config::VerifyApi
+ADDED    scry_core::config::VerifyConfig
+ADDED    scry_core::memory::Brief
+ADDED    scry_core::memory::SOURCES
+ADDED    scry_core::memory::brief
+ADDED    scry_core::memory::validate_source
+ADDED    scry_core::repo::path_scope_key
+ADDED    scry_core::store::SourceStats
+ADDED    scry_core::store::memories::SourceStats
+ADDED    scry_core::verify
+ADDED    scry_core::verify::Verifier
+CHANGED  scry_core::Error (signature)
+CHANGED  scry_core::config::Config (signature)
+CHANGED  scry_core::error::Error (signature)
+CHANGED  scry_core::memory::MemoryDraft (signature)
+CHANGED  scry_core::memory::recall_with_vector (signature)
+CHANGED  scry_core::memory::remember (body)
+CHANGED  scry_core::memory::remember_with_embedding (body)
+CHANGED  scry_core::memory::validate_kind (body)
+CHANGED  scry_core::store::MemoryRow (signature)
+CHANGED  scry_core::store::NewMemory (signature)
+CHANGED  scry_core::store::memories::MemoryRow (signature)
+CHANGED  scry_core::store::memories::NewMemory (signature)
+
+# scry-server
+ADDED    scry_server::api::BriefRequest
+ADDED    scry_server::api::BriefResponse
+ADDED    scry_server::api::MemoryStatsResponse
+ADDED    scry_server::api::SourceStatsDto
+ADDED    scry_server::api::SupersedeRequest
+ADDED    scry_server::api::SupersedeResponse
+ADDED    scry_server::api::VerifyRequest
+ADDED    scry_server::api::VerifyResponse
+CHANGED  scry_server::AppState (signature)
+CHANGED  scry_server::api::RecallRequest (signature)
+CHANGED  scry_server::api::RememberRequest (signature)
+CHANGED  scry_server::router (body)
+```
 
 
 ## 0.2.0 - 2026-09-05
