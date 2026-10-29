@@ -110,8 +110,7 @@ each prompt and lets the agent report which ones helped.
 Memory vectors are partitioned by scope (globals share one partition), so
 recall runs one nearest-neighbor search over the current scope and one
 over the globals and merges them by distance. A large neighbor scope
-cannot crowd out the current one. In a scoped recall at most 2 globals
-make the list, as in the brief.
+cannot crowd out the current one.
 
 ### Suppression
 
