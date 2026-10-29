@@ -3,7 +3,7 @@
 //! driven by the sync pipeline's file hashes.
 
 use crate::embed::Embedder;
-use crate::store::{MemoryAnchor, MemoryRow, NewMemory, Store};
+use crate::store::{MemoryAnchor, MemoryRow, NewMemory, Scope, Store};
 use crate::{Error, Result};
 
 pub const KINDS: &[&str] = &[
@@ -179,7 +179,7 @@ fn resolve_anchors(
         .collect()
 }
 
-fn now_epoch() -> i64 {
+pub(crate) fn now_epoch() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
@@ -187,7 +187,7 @@ fn now_epoch() -> i64 {
 
 pub fn recall_with_vector(
     store: &Store,
-    repo_id: Option<i64>,
+    scope: Scope,
     vector: &[f32],
     limit: usize,
     half_life_days: f64,
@@ -195,16 +195,16 @@ pub fn recall_with_vector(
 ) -> Result<Vec<MemoryHit>> {
     let now = now_epoch();
     let mut hits: Vec<MemoryHit> = store
-        .memory_candidates(repo_id, vector, CANDIDATES)?
+        .memory_candidates(scope, vector, CANDIDATES)?
         .into_iter()
         .map(|(row, distance)| {
             let similarity = (1.0 - distance).clamp(0.0, 1.0);
             MemoryHit {
-                id: row.id,
-                kind: row.kind.clone(),
-                content: row.content.clone(),
                 score: recall_score(similarity, &row, now, half_life_days),
                 stale: row.status == "stale",
+                id: row.id,
+                kind: row.kind,
+                content: row.content,
             }
         })
         .collect();
@@ -229,15 +229,14 @@ pub struct Brief {
 /// [`BRIEF_GLOBAL_MAX`] globals make the list.
 pub fn brief(
     store: &Store,
-    repo_id: Option<i64>,
-    scoped: bool,
+    scope: Scope,
     limit: usize,
     stale_days: u32,
     half_life_days: f64,
 ) -> Result<Brief> {
     let now = now_epoch();
     let mut ranked: Vec<(MemoryHit, bool)> = store
-        .live_memories(repo_id)?
+        .live_memories(scope)?
         .into_iter()
         .map(|row| {
             let global = row.repo_id.is_none();
@@ -245,8 +244,19 @@ pub fn brief(
         })
         .collect();
     ranked.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    let top = cap_globals(ranked, scope.is_scoped(), limit);
+    let since = now - i64::from(stale_days) * 86_400;
+    let went_stale = store
+        .recently_stale_memories(scope, since, BRIEF_STALE_MAX)?
+        .into_iter()
+        .map(|row| brief_hit(row, now, half_life_days, true))
+        .collect();
+    Ok(Brief { top, went_stale })
+}
+
+fn cap_globals(ranked: Vec<(MemoryHit, bool)>, scoped: bool, limit: usize) -> Vec<MemoryHit> {
     let mut globals = 0;
-    let top = ranked
+    ranked
         .into_iter()
         .filter(|(_, global)| {
             globals += usize::from(*global);
@@ -254,14 +264,7 @@ pub fn brief(
         })
         .map(|(hit, _)| hit)
         .take(limit)
-        .collect();
-    let since = now - i64::from(stale_days) * 86_400;
-    let went_stale = store
-        .recently_stale_memories(repo_id, since, BRIEF_STALE_MAX)?
-        .into_iter()
-        .map(|row| brief_hit(row, now, half_life_days, true))
-        .collect();
-    Ok(Brief { top, went_stale })
+        .collect()
 }
 
 fn brief_hit(row: MemoryRow, now: i64, half_life_days: f64, stale: bool) -> MemoryHit {
@@ -290,6 +293,8 @@ mod tests {
             access_count: access,
             helpful_count: helpful,
             stale_at: None,
+            superseded_by: None,
+            helpful_at: None,
         }
     }
 

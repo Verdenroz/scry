@@ -22,10 +22,15 @@ USAGE:
   scry remember \"insight\" [--kind K] [--pain N] [--anchor path[:a-b]]
                                          [--source agent|capture] [--evidence T]
   scry recall \"query\" [-m N] [--no-touch]  recall memories about this codebase
+                                         (`--` ends options for remember and recall)
   scry memory <helpful|noise> <id>       reinforce or demote a memory
   scry memory brief [-m N] [--stale-days D]  top memories + recently stale ones
   scry memory supersede <old_id> <new_id>    retire a memory in favor of another
   scry memory stats                      per-source memory counts and feedback
+  scry memory reaffirm <id> --evidence T  mark a stale memory live again
+  scry memory stale [--file relpath]...  list stale memories, optionally by anchored file
+  scry memory gc [--dry-run]             archive superseded, long-stale, faded, and noisy memories
+  scry memory restore <id>               bring an archived memory back
   scry memory verify \"claim\" --evidence T  score a claim against evidence
   scry memory verify --eval <pairs.jsonl>    calibrate the verifier on labelled pairs
 

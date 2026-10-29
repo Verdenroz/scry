@@ -38,16 +38,30 @@ pub struct Config {
 pub struct MemoryConfig {
     #[serde(default = "default_half_life_days")]
     pub half_life_days: f64,
+    #[serde(default = "default_gc_stale_days")]
+    pub gc_stale_days: u32,
+    #[serde(default = "default_gc_episode_floor")]
+    pub gc_episode_floor: f64,
 }
 
 fn default_half_life_days() -> f64 {
     29.0
 }
 
+fn default_gc_stale_days() -> u32 {
+    30
+}
+
+fn default_gc_episode_floor() -> f64 {
+    0.1
+}
+
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             half_life_days: default_half_life_days(),
+            gc_stale_days: default_gc_stale_days(),
+            gc_episode_floor: default_gc_episode_floor(),
         }
     }
 }

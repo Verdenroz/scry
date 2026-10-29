@@ -43,7 +43,13 @@ hard-won bug fix.
 Recall score multiplies semantic similarity by stored salience, a recency
 decay (`[memory] half_life_days`, default 29), and learned utility
 (helpful retrievals over total retrievals). Memories fade with disuse and
-never hard-delete; one helpful retrieval re-strengthens them.
+never hard-delete; one helpful retrieval re-strengthens them. Recall
+ranks scope and global memories together with no cap on globals; only the
+brief caps them.
+
+Noise votes suppress a memory per scope. Suppressions apply to scopes
+that exist as a repo and to requests with no scope key at all; a scope
+key that has no repo yet sees no suppressions.
 
 ## Staleness
 
@@ -90,12 +96,89 @@ recall and brief.
 memories:
 
 ```
-capture: 12 memories (3 stale), 40 retrievals, 9 helpful, 2 noise
+capture: 12 memories (3 stale), 40 retrievals, 9 helpful, 2 noise, 5 archived
 ```
 
 Retrievals sum each memory's access count; noise counts `scry memory
-noise` votes. The Claude Code plugin injects the top-scoring memories on
+noise` votes; archived counts rows retired by `scry memory gc`. The Claude Code plugin injects the top-scoring memories on
 each prompt and lets the agent report which ones helped.
+
+## Lifecycle
+
+### Scope partitioning
+
+Memory vectors are partitioned by scope (globals share one partition), so
+recall runs one nearest-neighbor search over the current scope and one
+over the globals and merges them by distance. A large neighbor scope
+cannot crowd out the current one.
+
+### Suppression
+
+`scry memory noise <id>` demotes the memory's salience and also hides it
+in the scope the command ran in. Other scopes still see it.
+`scry memory helpful <id>` lifts the hide in the scope it ran in.
+Suppressed memories are skipped by recall and brief.
+
+### Reaffirm
+
+```sh
+scry memory stale [--file relpath]...
+scry memory reaffirm <id> --evidence "text"
+```
+
+`stale` lists stale, non-superseded memories in scope, one per line as
+three tab-separated fields: `[kind #id] (stale)`, the anchored paths
+joined by `,`, and the content. In content and paths, `\` is written as
+`\\`, newline as `\n`, tab as `\t`, and carriage return as `\r`; a `,`
+inside a path is written `\,`, so split paths on unescaped commas. Each `--file` narrows the list to memories anchored to it, and
+nothing prints when there are none.
+`reaffirm` re-hashes the memory's anchors to the files as indexed now,
+marks it live, and appends the evidence. It fails unless the memory is
+stale, not superseded, and every anchor is still indexed. The server
+checks those preconditions only; deciding that the memory still holds is
+the caller's job.
+
+### GC and restore
+
+```sh
+scry memory gc [--dry-run]
+scry memory restore <id>
+```
+
+`gc` archives memories that recall should stop surfacing: the text stays,
+the vector is deleted, and recall, brief, and stale listings skip them.
+Each row counts toward the first rule it matches:
+
+- `superseded`: replaced by another memory.
+- `stale`: stale for longer than `[memory] gc_stale_days` with no helpful
+  vote since it went stale.
+- `episodes`: an `episode` with no helpful votes whose recall score at
+  similarity 1.0 is below `[memory] gc_episode_floor`.
+- `noise`: no helpful votes, and suppressed in its own scope (a repo
+  memory) or in at least two repo scopes (a global memory). A global
+  suppressed in one scope is handled by suppression alone.
+
+It prints a count per rule, then `archived N` (`would archive N` with
+`--dry-run`).
+
+`restore` re-embeds an archived memory and brings it back. It comes back
+`stale` if it was archived stale or an anchored file changed while it was
+archived, and `live` otherwise. Restoring clears its suppressions in
+every scope and resets its recency, so the next gc does not archive it
+again at once. Superseded memories cannot be restored.
+
+```toml
+[memory]
+half_life_days = 29
+gc_stale_days = 30
+gc_episode_floor = 0.1
+```
+
+### Arguments
+
+`--` ends option parsing for `scry remember`, `scry recall`, and
+`scry memory verify`; the rest is the content, query, or claim, so
+`scry remember -- "--no-touch skips counting"` keeps the leading dashes.
 
 ## Verification
 

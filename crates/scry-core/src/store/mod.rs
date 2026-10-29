@@ -4,11 +4,12 @@
 
 mod chunks;
 mod files;
+mod lifecycle;
 mod memories;
 
 pub use chunks::{ChunkRow, DenseHit, LexicalHit, NewChunk};
 pub use files::StoredFile;
-pub use memories::{MemoryAnchor, MemoryRow, NewMemory, SourceStats};
+pub use memories::{MemoryAnchor, MemoryRow, NewMemory, Scope, SourceStats};
 
 use std::path::Path;
 use std::sync::Once;
@@ -19,7 +20,7 @@ use rusqlite::ffi::sqlite3_auto_extension;
 use crate::{Error, Result};
 
 const SCHEMA: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 
 static VEC_EXTENSION: Once = Once::new();
 
@@ -78,10 +79,8 @@ impl Store {
                      repo_id INTEGER PARTITION KEY,
                      embedding bit[{dim}]
                  );
-                 CREATE VIRTUAL TABLE vec_memories USING vec0(
-                     memory_id INTEGER PRIMARY KEY,
-                     embedding float[{dim}] distance_metric=cosine
-                 );"
+                 {}",
+                vec_memories_ddl(dim)
             ))?;
             conn.execute(
                 "INSERT INTO meta (key, value) VALUES
@@ -92,7 +91,7 @@ impl Store {
         let store = Self { conn };
         store.guard_meta("embedding_model", embedding_model)?;
         store.guard_meta("embedding_dim", &dim.to_string())?;
-        migrate(&store.conn)?;
+        migrate(&store.conn, dim)?;
         Ok(store)
     }
 
@@ -139,6 +138,14 @@ impl Store {
         Ok(id)
     }
 
+    /// The asking scope for an optional scope key.
+    pub fn scope(&self, key: Option<&str>) -> Result<Scope> {
+        Ok(match key {
+            None => Scope::Unscoped,
+            Some(key) => self.repo_id(key)?.map_or(Scope::Unseen, Scope::Repo),
+        })
+    }
+
     pub fn repo_id(&self, key: &str) -> Result<Option<i64>> {
         let id = self
             .conn
@@ -171,7 +178,10 @@ impl Store {
 /// table and repos gain a maintained chunk_count.
 /// v3 -> v4: memories gain provenance, a staleness timestamp, and a noise
 /// count.
-fn migrate(conn: &Connection) -> Result<()> {
+/// v4 -> v5: memory vectors gain a scope partition (0 for globals),
+/// memories gain `helpful_at`, per-scope suppressions get a table, and
+/// legacy stale rows get a `stale_at`.
+fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     let version: String = conn.query_row(
         "SELECT value FROM meta WHERE key = 'schema_version'",
         [],
@@ -193,6 +203,9 @@ fn migrate(conn: &Connection) -> Result<()> {
     }
     if version < 4 {
         conn.execute_batch(MIGRATE_V3_TO_V4)?;
+    }
+    if version < 5 {
+        conn.execute_batch(&migrate_v4_to_v5(dim))?;
     }
     Ok(())
 }
@@ -251,6 +264,44 @@ const MIGRATE_V3_TO_V4: &str = "BEGIN;
     UPDATE meta SET value = '4' WHERE key = 'schema_version';
     COMMIT;";
 
+fn vec_memories_ddl(dim: usize) -> String {
+    format!(
+        "CREATE VIRTUAL TABLE vec_memories USING vec0(
+            memory_id INTEGER PRIMARY KEY,
+            repo_id INTEGER PARTITION KEY,
+            embedding float[{dim}] distance_metric=cosine
+        );"
+    )
+}
+
+fn migrate_v4_to_v5(dim: usize) -> String {
+    let ddl = vec_memories_ddl(dim);
+    format!(
+        "BEGIN;
+        ALTER TABLE memories ADD COLUMN helpful_at INTEGER;
+        UPDATE memories SET helpful_at = last_access WHERE helpful_count > 0;
+        UPDATE memories SET stale_at = unixepoch()
+            WHERE status = 'stale' AND stale_at IS NULL;
+        CREATE TABLE memory_suppressions (
+            memory_id INTEGER NOT NULL REFERENCES memories(id),
+            repo_id INTEGER NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            UNIQUE (memory_id, repo_id)
+        );
+        CREATE TEMP TABLE memory_vectors_old AS
+            SELECT memory_id, embedding FROM vec_memories;
+        DROP TABLE vec_memories;
+        {ddl}
+        INSERT INTO vec_memories (memory_id, repo_id, embedding)
+            SELECT o.memory_id, coalesce(m.repo_id, 0), o.embedding
+            FROM memory_vectors_old o JOIN memories m ON m.id = o.memory_id
+            WHERE m.status != 'archived';
+        DROP TABLE memory_vectors_old;
+        UPDATE meta SET value = '5' WHERE key = 'schema_version';
+        COMMIT;"
+    )
+}
+
 pub(crate) fn vector_bytes(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
@@ -279,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_through_v4() {
+    fn migrates_v1_through_v5() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");
         {
@@ -324,10 +375,31 @@ mod tests {
                      ALTER TABLE memories DROP COLUMN evidence;
                      ALTER TABLE memories DROP COLUMN stale_at;
                      ALTER TABLE memories DROP COLUMN noise_count;
-                     INSERT INTO memories (kind, content) VALUES ('lesson', 'old');
+                     DROP TABLE memory_suppressions;
+                     ALTER TABLE memories DROP COLUMN helpful_at;
+                     DROP TABLE vec_memories;
+                     CREATE VIRTUAL TABLE vec_memories USING vec0(
+                         memory_id INTEGER PRIMARY KEY,
+                         embedding float[8] distance_metric=cosine);
+                     INSERT INTO memories (kind, content, helpful_count)
+                         VALUES ('lesson', 'old', 1);
+                     INSERT INTO memories (kind, content, status)
+                         VALUES ('lesson', 'legacy stale', 'stale');
+                     UPDATE memories SET repo_id = 1 WHERE content = 'legacy stale';
+                     INSERT INTO memories (kind, content, status)
+                         VALUES ('lesson', 'archived', 'archived');
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
                 )
                 .unwrap();
+            for id in [1, 2, 3] {
+                store
+                    .conn
+                    .execute(
+                        "INSERT INTO vec_memories (memory_id, embedding) VALUES (?1, ?2)",
+                        rusqlite::params![id, vector_bytes(&[0.5; 8])],
+                    )
+                    .unwrap();
+            }
         }
         let store = Store::open(&path, "m", 8).unwrap();
         let version: String = store
@@ -338,7 +410,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "4");
+        assert_eq!(version, "5");
         let hits = store.lexical_search(None, "\"domains\"", 5, None).unwrap();
         assert_eq!(hits.len(), 1);
         let copied: i64 = store
@@ -358,6 +430,45 @@ mod tests {
             })
             .unwrap();
         assert_eq!((source.as_str(), noise), ("agent", 0));
+
+        let helpful_at: Option<i64> = store
+            .conn
+            .query_row(
+                "SELECT helpful_at FROM memories WHERE content = 'old'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(helpful_at.is_some());
+        let stale_at: Option<i64> = store
+            .conn
+            .query_row(
+                "SELECT stale_at FROM memories WHERE status = 'stale'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stale_at.is_some());
+        let partitions: Vec<(i64, i64)> = store
+            .conn
+            .prepare("SELECT memory_id, repo_id FROM vec_memories ORDER BY memory_id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            partitions,
+            vec![(1, 0), (2, 1)],
+            "archived row keeps no vector"
+        );
+        let suppressions: i64 = store
+            .conn
+            .query_row("SELECT count(*) FROM memory_suppressions", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(suppressions, 0);
     }
 
     #[test]

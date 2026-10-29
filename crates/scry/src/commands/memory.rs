@@ -3,9 +3,11 @@ use scry_server::api::{
     AnchorDto, BriefRequest, FeedbackRequest, RecallRequest, RememberRequest, SupersedeRequest,
 };
 
-use super::{memory_scope_key, repo_context};
+use super::{memory_scope_key, repo_context, take_rest};
 
 const REMEMBER_USAGE: &str = "usage: scry remember \"content\" [--kind lesson|decision|convention|skill|fact|episode] [--pain 0-10] [--cost 0-10] [--anchor path[:start-end]] [--source agent|capture] [--evidence \"text\"] [--global]";
+
+const RECALL_USAGE: &str = "usage: scry recall \"query\" [-m N] [--min-score S] [--no-touch]";
 
 pub async fn remember(args: &[String]) -> Result<()> {
     let mut content: Option<String> = None;
@@ -25,6 +27,7 @@ pub async fn remember(args: &[String]) -> Result<()> {
             "--source" => source = it.next().cloned().unwrap_or(source),
             "--evidence" => evidence = it.next().cloned(),
             "--global" => global = true,
+            "--" => content = take_rest(content, it.by_ref(), REMEMBER_USAGE)?,
             "--anchor" => {
                 let Some(spec) = it.next() else {
                     bail!(REMEMBER_USAGE);
@@ -96,12 +99,13 @@ pub async fn recall(args: &[String]) -> Result<()> {
                 min_score = it.next().and_then(|v| v.parse().ok()).unwrap_or(min_score);
             }
             "--no-touch" => touch = false,
+            "--" => query = take_rest(query, it.by_ref(), RECALL_USAGE)?,
             text if !text.starts_with('-') && query.is_none() => query = Some(text.to_string()),
             _ => {}
         }
     }
     let Some(query) = query else {
-        bail!("usage: scry recall \"query\" [-m N] [--min-score S] [--no-touch]");
+        bail!(RECALL_USAGE);
     };
 
     let ctx = repo_context()?;
@@ -129,6 +133,10 @@ pub async fn run(args: &[String]) -> Result<()> {
         Some("brief") => brief(&args[1..]).await,
         Some("supersede") => supersede(&args[1..]).await,
         Some("stats") => stats().await,
+        Some("reaffirm") => super::lifecycle::reaffirm(&args[1..]).await,
+        Some("stale") => super::lifecycle::stale(&args[1..]).await,
+        Some("gc") => super::lifecycle::gc(&args[1..]).await,
+        Some("restore") => super::lifecycle::restore(&args[1..]).await,
         Some("verify") => super::verify::run(&args[1..]).await,
         _ => feedback(args).await,
     }
@@ -196,8 +204,8 @@ async fn stats() -> Result<()> {
     let ctx = repo_context()?;
     for s in ctx.client.memory_stats().await?.sources {
         println!(
-            "{}: {} memories ({} stale), {} retrievals, {} helpful, {} noise",
-            s.source, s.memories, s.stale, s.retrievals, s.helpful, s.noise
+            "{}: {} memories ({} stale), {} retrievals, {} helpful, {} noise, {} archived",
+            s.source, s.memories, s.stale, s.retrievals, s.helpful, s.noise, s.archived
         );
     }
     Ok(())
@@ -213,7 +221,11 @@ pub async fn feedback(args: &[String]) -> Result<()> {
     let ctx = repo_context()?;
     let response = ctx
         .client
-        .feedback(&FeedbackRequest { id, helpful })
+        .feedback(&FeedbackRequest {
+            id,
+            helpful,
+            repo_key: Some(memory_scope_key(&ctx.identity)),
+        })
         .await?;
     println!(
         "{}",

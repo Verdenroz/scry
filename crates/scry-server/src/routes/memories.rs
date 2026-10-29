@@ -6,12 +6,16 @@ use scry_core::memory::{
     AnchorSpec, MemoryDraft, MemoryHit, brief as build_brief, embed_text, recall_with_vector,
     remember_with_embedding, validate_kind, validate_source,
 };
+use scry_core::memory_gc;
+use scry_core::store::Scope;
 
 use crate::AppState;
 use crate::api::{
-    BriefRequest, BriefResponse, FeedbackRequest, FeedbackResponse, MemoryDto, MemoryStatsResponse,
-    RecallRequest, RecallResponse, RememberRequest, RememberResponse, SourceStatsDto,
-    SupersedeRequest, SupersedeResponse, VerifyRequest, VerifyResponse,
+    BriefRequest, BriefResponse, FeedbackRequest, FeedbackResponse, GcRequest, GcResponse,
+    MemoryDto, MemoryStatsResponse, ReaffirmRequest, ReaffirmResponse, RecallRequest,
+    RecallResponse, RememberRequest, RememberResponse, RestoreRequest, RestoreResponse,
+    SourceStatsDto, StaleMemoryDto, StaleRequest, StaleResponse, SupersedeRequest,
+    SupersedeResponse, VerifyRequest, VerifyResponse,
 };
 use crate::error::ApiError;
 
@@ -77,13 +81,10 @@ pub async fn recall(
     let memories = state
         .store
         .call(move |store| {
-            let repo_id = match &request.repo_key {
-                Some(key) => store.repo_id(key)?,
-                None => None,
-            };
+            let scope = store.scope(request.repo_key.as_deref())?;
             recall_with_vector(
                 store,
-                repo_id,
+                scope,
                 &vector,
                 request.limit,
                 half_life,
@@ -112,7 +113,16 @@ pub async fn feedback(
 ) -> Result<Json<FeedbackResponse>, ApiError> {
     let updated = state
         .store
-        .call(move |store| store.memory_feedback(request.id, request.helpful))
+        .call(move |store| {
+            if store.memory(request.id)?.is_none() {
+                return Ok(false);
+            }
+            let scope = match (&request.repo_key, request.helpful) {
+                (Some(key), false) => Scope::Repo(store.upsert_repo(key)?),
+                (key, _) => store.scope(key.as_deref())?,
+            };
+            store.memory_feedback(request.id, request.helpful, scope)
+        })
         .await?;
     Ok(Json(FeedbackResponse { updated }))
 }
@@ -125,19 +135,8 @@ pub async fn brief(
     let digest = state
         .store
         .call(move |store| {
-            let repo_id = match &request.repo_key {
-                Some(key) => store.repo_id(key)?,
-                None => None,
-            };
-            let scoped = request.repo_key.is_some();
-            build_brief(
-                store,
-                repo_id,
-                scoped,
-                request.limit,
-                request.stale_days,
-                half_life,
-            )
+            let scope = store.scope(request.repo_key.as_deref())?;
+            build_brief(store, scope, request.limit, request.stale_days, half_life)
         })
         .await?;
     Ok(Json(BriefResponse {
@@ -174,6 +173,7 @@ pub async fn memory_stats(
                 retrievals: s.retrievals,
                 helpful: s.helpful,
                 noise: s.noise,
+                archived: s.archived,
             })
             .collect(),
     }))
@@ -196,4 +196,83 @@ pub async fn verify(
         score: Some(score),
         supported: Some(score >= verifier.threshold()),
     }))
+}
+
+pub async fn reaffirm(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ReaffirmRequest>,
+) -> Result<Json<ReaffirmResponse>, ApiError> {
+    state
+        .store
+        .call(move |store| store.reaffirm_memory(request.id, &request.evidence))
+        .await
+        .map_err(not_found_if_config)?;
+    Ok(Json(ReaffirmResponse { id: request.id }))
+}
+
+pub async fn stale(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<StaleRequest>,
+) -> Result<Json<StaleResponse>, ApiError> {
+    let rows = state
+        .store
+        .call(move |store| {
+            let repo_id = store.scope(request.repo_key.as_deref())?.repo_id();
+            store.stale_memories(repo_id, &request.files)
+        })
+        .await?;
+    Ok(Json(StaleResponse {
+        memories: rows
+            .into_iter()
+            .map(|(row, relpaths)| StaleMemoryDto {
+                id: row.id,
+                kind: row.kind,
+                content: row.content,
+                relpaths,
+            })
+            .collect(),
+    }))
+}
+
+pub async fn gc(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GcRequest>,
+) -> Result<Json<GcResponse>, ApiError> {
+    let config = state.memory_config.clone();
+    let report = state
+        .store
+        .call(move |store| memory_gc::gc(store, &config, request.dry_run))
+        .await?;
+    Ok(Json(report))
+}
+
+pub async fn restore(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RestoreRequest>,
+) -> Result<Json<RestoreResponse>, ApiError> {
+    let id = request.id;
+    let archived = state
+        .store
+        .call(move |store| store.archived_memory(id))
+        .await
+        .map_err(not_found_if_config)?;
+    let embedding = state
+        .embedder
+        .embed(&[embed_text(&archived.kind, &archived.content)])
+        .await?
+        .pop()
+        .ok_or_else(|| ApiError::Internal("empty embedding response".to_string()))?;
+    let status = state
+        .store
+        .call(move |store| store.restore_memory(id, &embedding))
+        .await
+        .map_err(not_found_if_config)?;
+    Ok(Json(RestoreResponse { id, status }))
+}
+
+fn not_found_if_config(error: scry_core::Error) -> ApiError {
+    match error {
+        scry_core::Error::Config(message) => ApiError::NotFound(message),
+        other => other.into(),
+    }
 }

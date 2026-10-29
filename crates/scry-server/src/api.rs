@@ -167,6 +167,9 @@ pub struct MemoryDto {
 pub struct FeedbackRequest {
     pub id: i64,
     pub helpful: bool,
+    /// Scope the vote was cast in; noise suppresses the memory there.
+    #[serde(default)]
+    pub repo_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -234,6 +237,58 @@ pub struct SourceStatsDto {
     pub retrievals: i64,
     pub helpful: i64,
     pub noise: i64,
+    pub archived: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReaffirmRequest {
+    pub id: i64,
+    pub evidence: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReaffirmResponse {
+    pub id: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StaleRequest {
+    #[serde(default)]
+    pub repo_key: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StaleMemoryDto {
+    pub id: i64,
+    pub kind: String,
+    pub content: String,
+    pub relpaths: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StaleResponse {
+    pub memories: Vec<StaleMemoryDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GcRequest {
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+pub type GcResponse = scry_core::memory_gc::GcReport;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RestoreRequest {
+    pub id: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RestoreResponse {
+    pub id: i64,
+    pub status: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
