@@ -110,3 +110,4 @@ claims against fresh measurements. `cargo test --workspace` runs the
 suite, `cargo soothfast measure -p scry-core --save-baseline dev` records
 a local baseline, `scry eval` guards retrieval quality when touching the
 ranking pipeline.
+
