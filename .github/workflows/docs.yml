@@ -3,6 +3,7 @@ name: docs
 on:
   push:
     branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -21,8 +22,17 @@ jobs:
       # callgrind fallback for PMU-less runners
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
       # install only, pinned to Cargo.lock
-      - uses: Verdenroz/soothfast@0ffb7ace91600ce208c76bd0218e5dc4df8c9851 # v0.4.4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: sf-cli
         with:
+          path: ~/.soothfast-cli
+          key: cargo-soothfast-git-c82e5e27be01ce00a886b58b450d26b62aa891cc
+      - if: steps.sf-cli.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.soothfast-cli --git https://github.com/Verdenroz/soothfast --rev c82e5e27be01ce00a886b58b450d26b62aa891cc cargo-soothfast
+      - run: echo "$HOME/.soothfast-cli/bin" >> "$GITHUB_PATH"
+      - uses: Verdenroz/soothfast@c82e5e27be01ce00a886b58b450d26b62aa891cc
+        with:
+          binary: /home/runner/.soothfast-cli/bin/cargo-soothfast
           gate: "false"
           changelog: "false"
       - run: cargo soothfast measure -p scry-core --save-baseline base
@@ -33,6 +43,7 @@ jobs:
           path: site
 
   deploy:
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     environment:
