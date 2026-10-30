@@ -12,3 +12,11 @@ secondary = "#0f766e"
 [[site.nav]]
 title = "Guide"
 pages = ["index.md", "search.md", "sync-protocol.md", "memory.md", "hosting.md"]
+
+[[project]]
+dir = "plugin/plugins/scry/hooks"
+ecosystem = "python"
+bench_cmd = "uv run --with 'pytest<9' --with pytest-benchmark pytest tests/bench_hooks.py --benchmark-only --benchmark-json {out}"
+bench_out = "bench.json"
+from = "pytest-benchmark"
+walltime = "hard"

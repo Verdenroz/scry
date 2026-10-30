@@ -3,3 +3,4 @@
 *.db
 /site
 __pycache__/
+.soothfast/
