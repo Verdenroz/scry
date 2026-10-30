@@ -20,3 +20,6 @@ bench_cmd = "uv run --with 'pytest<9' --with pytest-benchmark pytest tests/bench
 bench_out = "bench.json"
 from = "pytest-benchmark"
 walltime = "hard"
+
+[docs]
+package = ["scry"]
