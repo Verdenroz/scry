@@ -40,8 +40,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build cargo-soothfast
-        run: cargo install --locked --root ~/.soothfast-cli --git https://github.com/Verdenroz/soothfast --rev 22a9ec4f7a2f4aaedb25ae8b6e5e3ddb381ed174 cargo-soothfast
-      - uses: Verdenroz/soothfast@22a9ec4f7a2f4aaedb25ae8b6e5e3ddb381ed174
+        run: cargo install --locked --root ~/.soothfast-cli --git https://github.com/Verdenroz/soothfast --rev 56774efcd7a817f8c496334ef48ef8787a11da47 cargo-soothfast
+      - uses: Verdenroz/soothfast@56774efcd7a817f8c496334ef48ef8787a11da47
         with:
           binary: /home/runner/.soothfast-cli/bin/cargo-soothfast
           changelog-packages: scry-core scry-server
