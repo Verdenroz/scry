@@ -31,17 +31,12 @@ jobs:
     concurrency:
       group: soothfast-${{ github.ref }}
       cancel-in-progress: true
-    env:
-      SOOTHFAST_DEBUG_SEED: "1"
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build cargo-soothfast
-        run: cargo install --locked --root ~/.soothfast-cli --git https://github.com/Verdenroz/soothfast --rev 56774efcd7a817f8c496334ef48ef8787a11da47 cargo-soothfast
-      - uses: Verdenroz/soothfast@56774efcd7a817f8c496334ef48ef8787a11da47
+      - uses: Verdenroz/soothfast@66a28504a93922a53d5ba30857c270e7c1e3b88e # v0.5.2
         with:
-          binary: /home/runner/.soothfast-cli/bin/cargo-soothfast
           changelog-packages: scry-core scry-server
