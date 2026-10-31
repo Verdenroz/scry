@@ -1,0 +1,26 @@
+name: soothfast
+
+# Written by `cargo soothfast init`; `cargo soothfast init --check` reports drift.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Only a pull request's newer push supersedes a run; a push run records the
+# reference the next pull request reuses and must finish.
+concurrency:
+  group: soothfast-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  soothfast:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    uses: Verdenroz/soothfast/.github/workflows/run.yml@66a28504a93922a53d5ba30857c270e7c1e3b88e # v0.5.2
+    with:
+      soothfast_ref: "66a28504a93922a53d5ba30857c270e7c1e3b88e"
