@@ -111,7 +111,7 @@ fn tokens_match(wanted: &str, subtoken: &str) -> bool {
 pub fn expand_symbols(symbols: &[String], query: &str) -> Vec<String> {
     let wanted: Vec<String> = query_tokens(query)
         .iter()
-        .filter(|t| t.len() >= 3)
+        .filter(|t| t.len() >= 2)
         .map(|t| t.to_lowercase())
         .collect();
     let mut seen = HashSet::new();
