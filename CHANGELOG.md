@@ -12,6 +12,7 @@
 
 ### 🔧 Internal
 
+- Gate the hooks benchmarks with soothfast (#31)
 - plugin: Drop claude-mem guard and the scry skill (#27)
 
 
