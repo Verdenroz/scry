@@ -37,6 +37,6 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: Verdenroz/soothfast@0ffb7ace91600ce208c76bd0218e5dc4df8c9851 # v0.4.4
+      - uses: Verdenroz/soothfast@c115134ae4369862836206660610ebf0a1a51eb3 # v0.5.3
         with:
           changelog-packages: scry-core scry-server
