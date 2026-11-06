@@ -1,5 +1,7 @@
+import io
 import json
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -120,6 +122,37 @@ class GuardTests(unittest.TestCase):
             self.assertEqual((result.returncode, result.stdout), (0, ""), name)
 
 
+class SubagentStartTests(unittest.TestCase):
+    def run_hook(self, cwd):
+        payload = json.dumps(
+            {"hook_event_name": "SubagentStart", "agent_type": "Explore", "cwd": cwd}
+        )
+        stdout = io.StringIO()
+        with (
+            mock.patch("sys.stdin", io.StringIO(payload)),
+            mock.patch("sys.stdout", stdout),
+            mock.patch("urllib.request.urlopen") as urlopen,
+            mock.patch("subprocess.Popen") as popen,
+            mock.patch("subprocess.run") as run,
+        ):
+            urlopen.return_value.__enter__.return_value.status = 200
+            with self.assertRaises(SystemExit):
+                runpy.run_path(str(HOOKS / "scry_watch.py"), run_name="__main__")
+        return json.loads(stdout.getvalue())["hookSpecificOutput"], popen, run
+
+    def test_subagent_gets_search_mandate_only(self):
+        with tempfile.TemporaryDirectory(dir=Path.home()) as repo:
+            out, popen, run = self.run_hook(repo)
+        self.assertEqual(out["hookEventName"], "SubagentStart")
+        self.assertEqual(out["additionalContext"], scry_watch.SEARCH_MANDATE)
+        popen.assert_not_called()
+        run.assert_not_called()
+
+    def test_subagent_at_home_gets_global_note(self):
+        out, _, _ = self.run_hook(str(Path.home()))
+        self.assertEqual(out["additionalContext"], scry_watch.GLOBAL_NOTE)
+
+
 class HookConfigTests(unittest.TestCase):
     def setUp(self):
         self.hooks = json.loads((HOOKS / "hook.json").read_text())["hooks"]
@@ -134,6 +167,12 @@ class HookConfigTests(unittest.TestCase):
             )
         self.assertTrue(
             any("scry_watch_kill.py" in c for c in self.commands("SessionEnd"))
+        )
+
+    def test_subagent_start_runs_watch_hook_for_every_agent(self):
+        self.assertNotIn("matcher", self.hooks["SubagentStart"][0])
+        self.assertTrue(
+            any("scry_watch.py" in c for c in self.commands("SubagentStart"))
         )
 
     def test_session_start_matches_all_sources(self):

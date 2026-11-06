@@ -13,15 +13,18 @@ GC_STAMP = Path(
 )
 GC_INTERVAL = 24 * 60 * 60
 
-MANDATE = (
+SEARCH_MANDATE = (
     "SEARCH: use scry instead of the built-in Grep, Glob, and WebSearch tools. "
     'Local code: `scry "query" [path]`, phrased as natural-language intent, '
     "printing `./path:start-end (NN.NN% match)` lines (`-c` adds the chunk, "
     '`-m N` caps results). Web: `scry --web --answer "query"`. Before '
     "debugging or changing something that may have history (a past bug, a "
     'named subsystem, a decision), run `scry recall "that topic"`; the '
-    "per-prompt injection only matches the user's literal words.\n\n"
-    "MEMORY: before ending a session in which you fixed a non-obvious bug, made "
+    "per-prompt injection only matches the user's literal words."
+)
+
+MANDATE = SEARCH_MANDATE + (
+    "\n\nMEMORY: before ending a session in which you fixed a non-obvious bug, made "
     "a design decision, or discovered a codebase constraint, record it: "
     '`scry remember "insight" --kind lesson|decision|convention|fact '
     '[--pain 0-10] [--anchor path[:start-end]]`. Anchor to the relevant file '
@@ -52,11 +55,11 @@ BRIEF_HEADER = (
 )
 
 
-def context(text: str) -> str:
+def context(text: str, event: str = "SessionStart") -> str:
     return json.dumps(
         {
             "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
+                "hookEventName": event,
                 "additionalContext": text,
             }
         }
@@ -159,6 +162,11 @@ if __name__ == "__main__":
     payload = read_hook_input() or {}
     cwd = payload.get("cwd") or os.getcwd()
     if not server_reachable():
+        sys.exit(0)
+    # Subagents share the parent's watch and work lists; they only need search.
+    if payload.get("hook_event_name") == "SubagentStart":
+        note = GLOBAL_NOTE if at_or_above_home(cwd) else SEARCH_MANDATE
+        print(context(note, "SubagentStart"))
         sys.exit(0)
     if gc_due():
         spawn_gc(cwd)
