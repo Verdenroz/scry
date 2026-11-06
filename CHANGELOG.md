@@ -10,10 +10,42 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### ✨ Features
+
+- memory: Reverify stale memories before gc (#35)
+- plugin: Inject search mandate into subagents (#33)
+
+### 🐛 Fixes
+
+- memory: Rank recall by similarity, log capture votes (#34)
+
 ### 🔧 Internal
 
 - Gate the hooks benchmarks with soothfast (#31)
 - plugin: Drop claude-mem guard and the scry skill (#27)
+
+---
+
+### 🔍 API surface
+
+```
+# scry-core
+ADDED    scry_core::memory::query_score
+ADDED    scry_core::reverify
+ADDED    scry_core::reverify::Candidate
+ADDED    scry_core::reverify::Prepared
+ADDED    scry_core::reverify::ReverifyReport
+ADDED    scry_core::reverify::commit
+ADDED    scry_core::reverify::prepare
+ADDED    scry_core::reverify::score
+ADDED    scry_core::verify::ClaimScorer
+CHANGED  scry_core::memory::recall_with_vector (signature)
+
+# scry-server
+ADDED    scry_server::api::ReverifyRequest
+ADDED    scry_server::api::ReverifyResponse
+CHANGED  scry_server::router (body)
+```
 
 
 ## 0.4.0 - 2026-10-29
