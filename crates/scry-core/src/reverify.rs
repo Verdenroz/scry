@@ -176,6 +176,10 @@ mod tests {
         async fn score(&self, claim: &str, _evidence: &str) -> Result<f64> {
             (self.0)(claim)
         }
+
+        async fn contradiction(&self, _claim: &str, _evidence: &str) -> Result<f64> {
+            Ok(0.0)
+        }
     }
 
     fn padded(head: [f32; 4]) -> Vec<f32> {
