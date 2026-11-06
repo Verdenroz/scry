@@ -64,8 +64,8 @@ def index(cwd: str):
     return None
 
 
-def mark(verb: str, ident: int, cwd: str) -> None:
-    run(["memory", verb, str(ident)], cwd)
+def mark(verb: str, ident: int, cwd: str) -> bool:
+    return run(["memory", verb, str(ident)], cwd).returncode == 0
 
 
 def supersede(old: int, new: int, cwd: str) -> None:

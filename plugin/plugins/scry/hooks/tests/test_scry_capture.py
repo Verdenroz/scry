@@ -28,8 +28,10 @@ class Fake:
         reaffirm_code=0,
         index_code=0,
         stale_code=0,
+        mark_code=0,
     ):
         self.output = output
+        self.mark_code = mark_code
         self.index_code = index_code
         self.stale_code = stale_code
         self.stale = stale
@@ -64,6 +66,8 @@ class Fake:
             out, code = self.stale, self.stale_code
         elif argv[:3] == ["scry", "memory", "reaffirm"]:
             out, code = f"reaffirmed #{argv[3]}", self.reaffirm_code
+        elif argv[:3] in (["scry", "memory", "helpful"], ["scry", "memory", "noise"]):
+            code = self.mark_code
         elif argv[:2] == ["scry", "recall"]:
             out = "[decision #9] (0.70) use rrf"
         return SimpleNamespace(returncode=code, stdout=out, stderr="")
@@ -219,6 +223,34 @@ class CaptureTests(CaptureCase):
         second = Fake(out)
         self.assertEqual(self.run_capture(second)["skipped"], "few tool calls")
         self.assertEqual(second.calls, [])
+
+    def test_failed_vote_is_logged_and_left_for_a_later_pass(self):
+        out = {
+            "memories": [],
+            "reinforce": [{"id": 9, "evidence": {"entry": 5, "quote": QUOTE}}],
+            "contradict": [],
+        }
+        result = self.run_capture(Fake(out, mark_code=1))
+        self.assertEqual((result["helpful"], result["vote_failed"]), (0, [9]))
+        state = json.loads((self.root / "state" / "s1.json").read_text())
+        self.assertEqual(state["helpful"], [])
+
+    def test_record_counts_proposed_votes_against_cast_ones(self):
+        out = {
+            "memories": [],
+            "reinforce": [
+                {"id": 9, "evidence": {"entry": 5, "quote": QUOTE}},
+                {"id": 9, "evidence": {"entry": 1, "quote": "why does the build fail?"}},
+            ],
+            "contradict": [{"id": 77, "evidence": {"entry": 5, "quote": QUOTE}}],
+        }
+        result = self.run_capture(Fake(out))
+        self.assertEqual(
+            (result["reinforce_proposed"], result["contradict_proposed"]), (2, 1)
+        )
+        self.assertEqual((result["helpful"], result["noise"]), (1, 0))
+        self.assertGreaterEqual(result["shown"], 1)
+        self.assertNotIn("vote_failed", result)
 
     def test_later_pass_sees_only_entries_after_the_saved_offset(self):
         out = {"memories": [], "reinforce": [], "contradict": []}

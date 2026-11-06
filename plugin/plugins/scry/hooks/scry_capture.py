@@ -13,7 +13,9 @@ import capture_scry
 import capture_transcript
 import capture_verify
 
-DEBUG_LOG_FILE = Path(os.environ.get("SCRY_CAPTURE_LOG", "/tmp/scry-capture.log"))
+DEBUG_LOG_FILE = Path(
+    os.environ.get("SCRY_CAPTURE_LOG", Path.home() / ".cache" / "scry" / "capture.log")
+)
 STATE_DIR = Path(
     os.environ.get("SCRY_CAPTURE_DIR", Path.home() / ".cache" / "scry" / "capture")
 )
@@ -77,11 +79,12 @@ def write_plan(plan: dict, cwd: str) -> int:
         written += 1
         if memory["supersedes"] is not None:
             capture_scry.supersede(memory["supersedes"], ident, cwd)
-    for ident in plan["helpful"]:
-        capture_scry.mark("helpful", ident, cwd)
-    for ident in plan["noise"]:
-        capture_scry.mark("noise", ident, cwd)
     return written
+
+
+def cast_votes(verb: str, ids: list, cwd: str) -> tuple:
+    cast = [i for i in ids if capture_scry.mark(verb, i, cwd)]
+    return cast, [i for i in ids if i not in cast]
 
 
 class Verifier:
@@ -188,22 +191,28 @@ def capture_range(payload: dict) -> dict:
     plan["helpful"] = unmarked(plan["helpful"], state["helpful"])
     plan["noise"] = unmarked(plan["noise"], state["noise"])
     written = write_plan(plan, cwd)
+    helpful, helpful_failed = cast_votes("helpful", plan["helpful"], cwd)
+    noise, noise_failed = cast_votes("noise", plan["noise"], cwd)
     reaffirmed = reaffirm_memories(plan["reaffirm"], verifier, cwd)
     save_state(
         state_file,
         {
             "offset": total,
-            "helpful": state["helpful"] + plan["helpful"],
-            "noise": state["noise"] + plan["noise"],
+            "helpful": state["helpful"] + helpful,
+            "noise": state["noise"] + noise,
         },
     )
     return {
         "tool_calls": calls,
+        "shown": len(existing),
         "proposed": len(output.get("memories") or []),
         "written": written,
         "episodes": sum(m["kind"] == "episode" for m in plan["memories"]),
-        "helpful": len(plan["helpful"]),
-        "noise": len(plan["noise"]),
+        "reinforce_proposed": len(output.get("reinforce") or []),
+        "contradict_proposed": len(output.get("contradict") or []),
+        "helpful": len(helpful),
+        "noise": len(noise),
+        **({"vote_failed": helpful_failed + noise_failed} if helpful_failed or noise_failed else {}),
         **lookup,
         **verdicts,
         **reaffirmed,
