@@ -155,7 +155,7 @@ fn default_verify_threshold() -> f64 {
 }
 
 fn default_contradiction_threshold() -> f64 {
-    0.9
+    0.8
 }
 
 impl VerifyConfig {
@@ -499,7 +499,7 @@ mod tests {
         let verify = config.verify.unwrap();
         assert_eq!(verify.api, VerifyApi::Chat);
         assert_eq!(verify.threshold, 0.5);
-        assert_eq!(verify.contradiction_threshold, 0.9);
+        assert_eq!(verify.contradiction_threshold, 0.8);
         assert!(Config::default().verify.is_none());
     }
 
@@ -511,7 +511,7 @@ mod tests {
             model: String::new(),
             api_key: String::new(),
             threshold: 0.5,
-            contradiction_threshold: 0.9,
+            contradiction_threshold: 0.8,
             prompt: Some(prompt.to_string()),
         };
         assert!(verify("{claim} vs {evidence}").validate().is_ok());
