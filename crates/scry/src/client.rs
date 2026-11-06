@@ -5,10 +5,11 @@ use scry_server::api::{
     FeedbackResponse, GcRequest, GcResponse, ManifestRequest, ManifestResponse,
     MemoryStatsResponse, PruneRequest, PruneResponse, ReaffirmRequest, ReaffirmResponse,
     RecallRequest, RecallResponse, RememberRequest, RememberResponse, RestoreRequest,
-    RestoreResponse, SearchRequest, SearchResponse, StaleRequest, StaleResponse, StatusResponse,
-    SupersedeRequest, SupersedeResponse, SyncRequest, SyncResponse, VerifyRequest, VerifyResponse,
-    WebSearchRequest, WebSearchResponse, WorkAddRequest, WorkCloseRequest, WorkItemResponse,
-    WorkListNameResponse, WorkListRequest, WorkListResponse, WorkSetRequest, WorkStateRequest,
+    RestoreResponse, ReverifyRequest, ReverifyResponse, SearchRequest, SearchResponse,
+    StaleRequest, StaleResponse, StatusResponse, SupersedeRequest, SupersedeResponse, SyncRequest,
+    SyncResponse, VerifyRequest, VerifyResponse, WebSearchRequest, WebSearchResponse,
+    WorkAddRequest, WorkCloseRequest, WorkItemResponse, WorkListNameResponse, WorkListRequest,
+    WorkListResponse, WorkSetRequest, WorkStateRequest,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -119,6 +120,10 @@ impl ApiClient {
 
     pub async fn gc(&self, request: &GcRequest) -> Result<GcResponse> {
         self.post("/v1/memories/gc", request).await
+    }
+
+    pub async fn reverify(&self, request: &ReverifyRequest) -> Result<ReverifyResponse> {
+        self.post("/v1/memories/reverify", request).await
     }
 
     pub async fn restore(&self, request: &RestoreRequest) -> Result<RestoreResponse> {

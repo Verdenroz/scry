@@ -86,6 +86,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/memories/reaffirm", post(routes::reaffirm))
         .route("/v1/memories/stale", post(routes::stale))
         .route("/v1/memories/gc", post(routes::gc))
+        .route("/v1/memories/reverify", post(routes::reverify))
         .route("/v1/memories/restore", post(routes::restore))
         .route("/v1/work/lists", post(routes::work_lists))
         .route("/v1/work/add", post(routes::work_add))

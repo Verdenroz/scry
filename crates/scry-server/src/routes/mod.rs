@@ -8,8 +8,8 @@ mod work;
 
 pub use answer::answer;
 pub use memories::{
-    brief, feedback, gc, memory_stats, reaffirm, recall, remember, restore, stale, supersede,
-    verify,
+    brief, feedback, gc, memory_stats, reaffirm, recall, remember, restore, reverify, stale,
+    supersede, verify,
 };
 pub use search::search;
 pub use status::status;

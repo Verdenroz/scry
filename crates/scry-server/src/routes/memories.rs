@@ -8,6 +8,7 @@ use scry_core::memory::{
     validate_source,
 };
 use scry_core::memory_gc;
+use scry_core::reverify;
 use scry_core::store::Scope;
 
 use crate::AppState;
@@ -15,8 +16,8 @@ use crate::api::{
     AnchorDto, BriefRequest, BriefResponse, FeedbackRequest, FeedbackResponse, GcRequest,
     GcResponse, MemoryDto, MemoryStatsResponse, ReaffirmRequest, ReaffirmResponse, RecallRequest,
     RecallResponse, RememberRequest, RememberResponse, RestoreRequest, RestoreResponse,
-    SourceStatsDto, StaleMemoryDto, StaleRequest, StaleResponse, SupersedeRequest,
-    SupersedeResponse, VerifyRequest, VerifyResponse,
+    ReverifyRequest, ReverifyResponse, SourceStatsDto, StaleMemoryDto, StaleRequest, StaleResponse,
+    SupersedeRequest, SupersedeResponse, VerifyRequest, VerifyResponse,
 };
 use crate::error::ApiError;
 
@@ -236,6 +237,33 @@ pub async fn gc(
         .call(move |store| memory_gc::gc(store, &config, request.dry_run))
         .await?;
     Ok(Json(report))
+}
+
+pub async fn reverify(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ReverifyRequest>,
+) -> Result<Json<ReverifyResponse>, ApiError> {
+    let Some(verifier) = &state.verify else {
+        return Ok(Json(ReverifyResponse {
+            configured: false,
+            report: None,
+        }));
+    };
+    let prepared = state
+        .store
+        .call(move |store| reverify::prepare(store, request.limit))
+        .await?;
+    let skipped = prepared.skipped;
+    let scored = reverify::score(verifier, prepared.candidates).await;
+    let threshold = verifier.threshold();
+    let report = state
+        .store
+        .call(move |store| reverify::commit(store, scored, skipped, threshold, request.dry_run))
+        .await?;
+    Ok(Json(ReverifyResponse {
+        configured: true,
+        report: Some(report),
+    }))
 }
 
 pub async fn restore(

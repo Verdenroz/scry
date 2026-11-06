@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use scry_server::api::{GcRequest, ReaffirmRequest, RestoreRequest, StaleRequest};
+use scry_server::api::{GcRequest, ReaffirmRequest, RestoreRequest, ReverifyRequest, StaleRequest};
 
 use super::memory::parse_anchor;
 use super::{memory_scope_key, repo_context};
@@ -85,6 +85,34 @@ pub async fn gc(args: &[String]) -> Result<()> {
         if dry_run { "would archive" } else { "archived" },
         report.total()
     );
+    Ok(())
+}
+
+pub async fn reverify(args: &[String]) -> Result<()> {
+    let mut dry_run = false;
+    let mut limit = 20;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--dry-run" => dry_run = true,
+            "--limit" => limit = it.next().and_then(|v| v.parse().ok()).unwrap_or(limit),
+            _ => {}
+        }
+    }
+    let ctx = repo_context()?;
+    let response = ctx
+        .client
+        .reverify(&ReverifyRequest { dry_run, limit })
+        .await?;
+    let Some(report) = response.report else {
+        println!("not configured");
+        return Ok(());
+    };
+    println!("checked: {}", report.checked);
+    println!("reaffirmed: {}", report.reaffirmed);
+    println!("still_stale: {}", report.still_stale);
+    println!("skipped: {}", report.skipped);
+    println!("errors: {}", report.errors);
     Ok(())
 }
 

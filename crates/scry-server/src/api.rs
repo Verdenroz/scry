@@ -283,6 +283,24 @@ pub struct GcRequest {
 pub type GcResponse = scry_core::memory_gc::GcReport;
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ReverifyRequest {
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default = "default_reverify_limit")]
+    pub limit: usize,
+}
+
+fn default_reverify_limit() -> usize {
+    20
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReverifyResponse {
+    pub configured: bool,
+    pub report: Option<scry_core::reverify::ReverifyReport>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RestoreRequest {
     pub id: i64,
 }
