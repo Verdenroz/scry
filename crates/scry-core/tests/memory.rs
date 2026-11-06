@@ -75,7 +75,7 @@ async fn remember_recall_staleness_and_feedback() {
         .unwrap()
         .pop()
         .unwrap();
-    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
     assert_eq!(hits[0].id, id);
     assert!(!hits[0].stale);
     let live_score = hits[0].score;
@@ -95,7 +95,7 @@ async fn remember_recall_staleness_and_feedback() {
     .await
     .unwrap();
 
-    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
     assert_eq!(hits[0].id, id);
     assert!(hits[0].stale);
     assert!(hits[0].score < live_score);
@@ -105,7 +105,7 @@ async fn remember_recall_staleness_and_feedback() {
             .memory_feedback(id, true, Scope::Repo(repo_id))
             .unwrap()
     );
-    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
     assert!(hits[0].score > 0.0);
 
     let (total, stale) = store.memory_counts().unwrap();
@@ -269,12 +269,12 @@ async fn untouched_recall_leaves_access_count_alone() {
         .pop()
         .unwrap();
 
-    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, false).unwrap();
+    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, false).unwrap();
     assert_eq!(
         store.live_memories(Scope::Repo(repo_id)).unwrap()[0].access_count,
         0
     );
-    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 29.0, true).unwrap();
+    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
     assert_eq!(
         store.live_memories(Scope::Repo(repo_id)).unwrap()[0].access_count,
         1
@@ -362,7 +362,7 @@ async fn recall_keeps_all_globals_and_honors_noise() {
         .unwrap();
 
     let recall =
-        || recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 10, 29.0, false).unwrap();
+        || recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 10, false).unwrap();
     let count_globals = |hits: &[scry_core::memory::MemoryHit]| {
         hits.iter().filter(|h| globals.contains(&h.id)).count()
     };

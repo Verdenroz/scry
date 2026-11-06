@@ -21,6 +21,7 @@ const SURPRISE_WEIGHT: f64 = 0.25;
 const COST_WEIGHT: f64 = 0.35;
 const EXPLICIT_WEIGHT: f64 = 0.4;
 const STALE_FACTOR: f64 = 0.5;
+const QUERY_SALIENCE_WEIGHT: f64 = 0.2;
 const CANDIDATES: usize = 40;
 const BRIEF_STALE_MAX: usize = 5;
 const BRIEF_GLOBAL_MAX: usize = 2;
@@ -76,6 +77,22 @@ pub fn recall_score(similarity: f64, row: &MemoryRow, now_epoch: i64, half_life_
         1.0
     };
     similarity * (0.2 + 0.8 * row.salience) * (0.3 + 0.7 * recency) * (1.0 + 0.5 * utility) * status
+}
+
+/// Query recall score: similarity first, salience and learned utility as
+/// tie-breakers. Recency is left out because retrieval recency rewards a
+/// memory for being shown, not for being relevant.
+pub fn query_score(similarity: f64, row: &MemoryRow) -> f64 {
+    let utility = row.helpful_count as f64 / (row.access_count.max(1) as f64);
+    let status = if row.status == "stale" {
+        STALE_FACTOR
+    } else {
+        1.0
+    };
+    similarity
+        * (1.0 - QUERY_SALIENCE_WEIGHT + QUERY_SALIENCE_WEIGHT * row.salience)
+        * (1.0 + 0.5 * utility)
+        * status
 }
 
 pub fn validate_kind(kind: &str) -> Result<()> {
@@ -200,17 +217,15 @@ pub fn recall_with_vector(
     scope: Scope,
     vector: &[f32],
     limit: usize,
-    half_life_days: f64,
     touch: bool,
 ) -> Result<Vec<MemoryHit>> {
-    let now = now_epoch();
     let mut hits: Vec<MemoryHit> = store
         .memory_candidates(scope, vector, CANDIDATES)?
         .into_iter()
         .map(|(row, distance)| {
             let similarity = (1.0 - distance).clamp(0.0, 1.0);
             MemoryHit {
-                score: recall_score(similarity, &row, now, half_life_days),
+                score: query_score(similarity, &row),
                 stale: row.status == "stale",
                 id: row.id,
                 kind: row.kind,
@@ -326,6 +341,20 @@ mod tests {
         assert!(old < fresh);
         let helpful = recall_score(0.8, &row(0.7, "live", 5, 5, now - month), now, 29.0);
         assert!(helpful > old);
+    }
+
+    #[test]
+    fn query_score_ignores_recency_and_ranks_by_similarity() {
+        let now = 1_000_000;
+        let year = 365 * 86_400;
+        let fresh = query_score(0.6, &row(0.5, "live", 0, 0, now));
+        let old = query_score(0.6, &row(0.5, "live", 0, 0, now - year));
+        assert_eq!(fresh, old);
+        let salient = query_score(0.50, &row(1.0, "live", 0, 0, now));
+        let relevant = query_score(0.65, &row(0.05, "live", 0, 0, now));
+        assert!(relevant > salient);
+        let stale = query_score(0.6, &row(0.5, "stale", 0, 0, now));
+        assert!((stale / fresh - 0.5).abs() < 1e-9);
     }
 
     #[test]
