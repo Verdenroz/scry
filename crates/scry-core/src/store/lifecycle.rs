@@ -67,6 +67,51 @@ impl Store {
         Ok(stale)
     }
 
+    /// Stale, non-superseded memories that have anchors and have not failed
+    /// a reverification since going stale, with those anchors, oldest
+    /// `stale_at` first.
+    pub fn reverifiable_memories(&self) -> Result<Vec<(MemoryRow, Vec<MemoryAnchor>)>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {ROW_COLUMNS} FROM memories
+             WHERE status = 'stale' AND superseded_by IS NULL
+               AND (reverified_at IS NULL OR reverified_at < stale_at)
+               AND EXISTS (SELECT 1 FROM memory_anchors a WHERE a.memory_id = memories.id)
+             ORDER BY stale_at, id"
+        ))?;
+        let rows: Vec<MemoryRow> = stmt
+            .query_map([], memory_row)?
+            .collect::<std::result::Result<_, _>>()?;
+        let mut anchors = self.conn.prepare(
+            "SELECT relpath, start_line, end_line, xxh64 FROM memory_anchors
+             WHERE memory_id = ?1 ORDER BY rowid",
+        )?;
+        rows.into_iter()
+            .map(|row| {
+                let found = anchors
+                    .query_map([row.id], |a| {
+                        Ok(MemoryAnchor {
+                            relpath: a.get(0)?,
+                            start_line: a.get(1)?,
+                            end_line: a.get(2)?,
+                            xxh64: a.get(3)?,
+                        })
+                    })?
+                    .collect::<std::result::Result<_, _>>()?;
+                Ok((row, found))
+            })
+            .collect()
+    }
+
+    /// Records a failed reverification; the memory is not offered again
+    /// until a later change to its anchored file.
+    pub fn mark_reverified(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE memories SET reverified_at = unixepoch() WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
+    }
+
     /// Re-hashes a stale memory's anchors to the current indexed files and
     /// marks it live. Non-empty `anchors` replace the existing ones first.
     /// Fails, changing nothing, unless the memory is stale, not superseded,

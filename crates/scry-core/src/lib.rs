@@ -11,6 +11,7 @@ pub mod memory;
 pub mod memory_gc;
 pub mod repo;
 pub mod rerank;
+pub mod reverify;
 pub mod search;
 pub mod store;
 pub mod verify;

@@ -22,7 +22,7 @@ use rusqlite::ffi::sqlite3_auto_extension;
 use crate::{Error, Result};
 
 const SCHEMA: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
 
 static VEC_EXTENSION: Once = Once::new();
 
@@ -184,6 +184,7 @@ impl Store {
 /// memories gain `helpful_at`, per-scope suppressions get a table, and
 /// legacy stale rows get a `stale_at`.
 /// v5 -> v6: work lists, items, and per-list state.
+/// v6 -> v7: memories gain `reverified_at`.
 fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     let version: String = conn.query_row(
         "SELECT value FROM meta WHERE key = 'schema_version'",
@@ -212,6 +213,9 @@ fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     }
     if version < 6 {
         conn.execute_batch(MIGRATE_V5_TO_V6)?;
+    }
+    if version < 7 {
+        conn.execute_batch(MIGRATE_V6_TO_V7)?;
     }
     Ok(())
 }
@@ -299,6 +303,11 @@ const MIGRATE_V5_TO_V6: &str = "BEGIN;
     UPDATE meta SET value = '6' WHERE key = 'schema_version';
     COMMIT;";
 
+const MIGRATE_V6_TO_V7: &str = "BEGIN;
+    ALTER TABLE memories ADD COLUMN reverified_at INTEGER;
+    UPDATE meta SET value = '7' WHERE key = 'schema_version';
+    COMMIT;";
+
 fn vec_memories_ddl(dim: usize) -> String {
     format!(
         "CREATE VIRTUAL TABLE vec_memories USING vec0(
@@ -365,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_through_v6() {
+    fn migrates_v1_through_v7() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");
         {
@@ -407,6 +416,7 @@ mod tests {
                      DROP TABLE chunk_vectors;
                      DROP TRIGGER chunks_count_ai; DROP TRIGGER chunks_count_ad;
                      ALTER TABLE repos DROP COLUMN chunk_count;
+                     ALTER TABLE memories DROP COLUMN reverified_at;
                      ALTER TABLE memories DROP COLUMN source;
                      ALTER TABLE memories DROP COLUMN evidence;
                      ALTER TABLE memories DROP COLUMN stale_at;
@@ -446,7 +456,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "6");
+        assert_eq!(version, "7");
         assert!(store.work_lists(1, None, false).unwrap().is_empty());
         let hits = store.lexical_search(None, "\"domains\"", 5, None).unwrap();
         assert_eq!(hits.len(), 1);

@@ -1,5 +1,6 @@
 //! Claim verification: P(evidence supports claim) from a configurable model.
 
+use async_trait::async_trait;
 use serde::Deserialize;
 
 use crate::config::{VerifyApi, VerifyConfig};
@@ -17,6 +18,11 @@ Claim: {claim}
 Does the evidence, on its own, fully support every part of the claim? Answer no if the claim is only partly supported, needs facts not shown in the evidence, or is contradicted. Answer with exactly one word: yes or no.";
 
 const SYSTEMONE_QUESTION: &str = "Does the evidence, on its own, fully support every part of the claim? Answer no if the claim is only partly supported, needs facts not shown in the evidence, or is contradicted.";
+
+#[async_trait]
+pub trait ClaimScorer: Send + Sync {
+    async fn score(&self, claim: &str, evidence: &str) -> Result<f64>;
+}
 
 pub struct Verifier {
     client: reqwest::Client,
@@ -142,6 +148,13 @@ impl Verifier {
             .await?
             .error_for_status()?;
         Ok(response.json().await?)
+    }
+}
+
+#[async_trait]
+impl ClaimScorer for Verifier {
+    async fn score(&self, claim: &str, evidence: &str) -> Result<f64> {
+        Verifier::score(self, claim, evidence).await
     }
 }
 

@@ -89,7 +89,9 @@ class GcTests(unittest.TestCase):
         with mock.patch("subprocess.Popen") as popen:
             scry_watch.spawn_gc("/repo")
         args, kwargs = popen.call_args
-        self.assertEqual(args[0], ["scry", "memory", "gc"])
+        self.assertEqual(
+            args[0], ["sh", "-c", "scry memory reverify; exec scry memory gc"]
+        )
         self.assertTrue(kwargs["start_new_session"])
         self.assertEqual(kwargs["cwd"], "/repo")
         self.assertTrue(self.stamp.exists())

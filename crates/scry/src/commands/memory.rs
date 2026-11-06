@@ -136,6 +136,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         Some("reaffirm") => super::lifecycle::reaffirm(&args[1..]).await,
         Some("stale") => super::lifecycle::stale(&args[1..]).await,
         Some("gc") => super::lifecycle::gc(&args[1..]).await,
+        Some("reverify") => super::lifecycle::reverify(&args[1..]).await,
         Some("restore") => super::lifecycle::restore(&args[1..]).await,
         Some("verify") => super::verify::run(&args[1..]).await,
         _ => feedback(args).await,

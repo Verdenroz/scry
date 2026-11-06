@@ -32,6 +32,8 @@ USAGE:
                                          replace its old ones
   scry memory stale [--file relpath]...  list stale memories, optionally by anchored file
   scry memory gc [--dry-run]             archive superseded, long-stale, faded, and noisy memories
+  scry memory reverify [--dry-run] [--limit N]
+                                         re-score stale memories against current code; passes go live
   scry memory restore <id>               bring an archived memory back
   scry memory verify \"claim\" --evidence T  score a claim against evidence
   scry memory verify --eval <pairs.jsonl>    calibrate the verifier on labelled pairs

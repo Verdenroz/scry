@@ -135,7 +135,7 @@ def spawn_gc(cwd: str) -> None:
         GC_STAMP.parent.mkdir(parents=True, exist_ok=True)
         with open(DEBUG_LOG_FILE, "a", encoding="utf-8") as log:
             subprocess.Popen(
-                ["scry", "memory", "gc"],
+                ["sh", "-c", "scry memory reverify; exec scry memory gc"],
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
                 stdout=log,

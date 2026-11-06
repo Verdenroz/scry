@@ -66,7 +66,9 @@ A memory anchored to a file (`--anchor path[:start-end]`) is tied to that
 file's content hash. When a sync commits a different hash, the memory
 flips to `stale`: still retrievable, demoted to half weight, and flagged
 in output. This is the mechanical answer to "does this memory need
-updating"; anchored memories cannot silently stay confidently wrong.
+updating"; anchored memories cannot silently stay confidently wrong. Any
+edit to the file flips it, so most stale memories are still true;
+`scry memory reverify` (below) re-checks them against the current code.
 
 Scry records when a memory goes stale, so a brief can surface what
 changed recently.
@@ -149,6 +151,27 @@ memory whose anchored file was deleted or moved: same id, salience, and
 feedback history. The server checks those preconditions only; deciding
 that the memory still holds is the caller's job.
 
+### Reverify
+
+```sh
+scry memory reverify [--dry-run] [--limit 20]
+```
+
+`reverify` scores stale, anchored, non-superseded memories against the
+current code with the `[verify]` model, oldest first, one at a time. The
+evidence is the anchored file's indexed chunks, each prefixed
+`relpath:start-end`, capped at 6000 characters: the chunks overlapping the
+anchor's line range, or for an anchor without one the 3 chunks nearest
+the memory's embedding. A score at or above the `[verify]` threshold
+reaffirms the memory, re-hashing its anchors and appending
+`reverified against <relpath>:<a-b> (p=0.93)` to its evidence. Anything
+else stays stale.
+
+It prints `checked`, `reaffirmed`, `still_stale`, `skipped` (an anchored
+file is no longer indexed), and `errors` (the verifier failed; the memory
+stays stale and the run continues). `--dry-run` scores without changing
+anything. Without `[verify]` it prints `not configured` and exits 0.
+
 ### GC and restore
 
 ```sh
@@ -162,7 +185,8 @@ Each row counts toward the first rule it matches:
 
 - `superseded`: replaced by another memory.
 - `stale`: stale for longer than `[memory] gc_stale_days` with no helpful
-  vote since it went stale.
+  vote since it went stale. With `[verify]` configured that means it failed
+  `reverify` or has not been checked yet.
 - `episodes`: an `episode` with no helpful votes whose recall score at
   similarity 1.0 is below `[memory] gc_episode_floor`.
 - `noise`: no helpful votes, and suppressed in its own scope (a repo
@@ -181,7 +205,7 @@ again at once. Superseded memories cannot be restored.
 ```toml
 [memory]
 half_life_days = 29
-gc_stale_days = 30
+gc_stale_days = 14
 gc_episode_floor = 0.1
 ```
 
@@ -361,7 +385,7 @@ read back later (through `Read` or a later command) is not traced.
 
 At `SessionStart`, when the server is reachable and
 `~/.cache/scry/gc-stamp` is missing or older than 24 hours, the plugin
-spawns `scry memory gc` detached, with output going to the watch log
+spawns `scry memory reverify` then `scry memory gc` detached, with output going to the watch log
 (`SCRY_WATCH_LOG`), and touches the stamp. It never blocks the hook. The
 gc rules and their config are described in the lifecycle section of this
 page.

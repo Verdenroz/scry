@@ -8,9 +8,9 @@ use scry_core::store::Store;
 use scry_core::verify::Verifier;
 use scry_server::api::{
     BriefResponse, FeedbackResponse, FileUpload, GcResponse, ManifestRequest, MemoryStatsResponse,
-    RecallResponse, RememberResponse, RestoreResponse, SearchRequest, SearchResponse,
-    StaleMemoryDto, StaleResponse, StatusResponse, SupersedeResponse, SyncRequest, SyncResponse,
-    VerifyResponse,
+    RecallResponse, RememberResponse, RestoreResponse, ReverifyResponse, SearchRequest,
+    SearchResponse, StaleMemoryDto, StaleResponse, StatusResponse, SupersedeResponse, SyncRequest,
+    SyncResponse, VerifyResponse,
 };
 use scry_server::api::{WorkItemResponse, WorkListResponse};
 use scry_server::{AppState, QueryCache, StoreHandle, router};
@@ -562,6 +562,56 @@ async fn gc(http: &reqwest::Client, base: &str, dry_run: bool) -> GcResponse {
     .json()
     .await
     .unwrap()
+}
+
+#[tokio::test]
+async fn reverify_reaffirms_stale_memories_the_code_still_supports() {
+    let http = reqwest::Client::new();
+    let reverify = |base: String, dry_run: bool| {
+        let http = http.clone();
+        async move {
+            let response: ReverifyResponse = post_json(
+                &http,
+                &base,
+                "/v1/memories/reverify",
+                serde_json::json!({ "dry_run": dry_run }),
+            )
+            .await
+            .json()
+            .await
+            .unwrap();
+            response
+        }
+    };
+    assert!(!reverify(spawn_server().await, false).await.configured);
+
+    let model = spawn_mock_verifier().await;
+    let config: VerifyConfig = toml::from_str(&format!(
+        "base_url = \"{model}\"\nmodel = \"mock\"\nthreshold = 0.5\n"
+    ))
+    .unwrap();
+    let base = spawn_server_with(None, Some(Verifier::new(config))).await;
+    sync_file(&http, &base, "pub fn a() {}\n").await;
+    post_json(
+        &http,
+        &base,
+        "/v1/memories/remember",
+        serde_json::json!({
+            "repo_key": REPO, "kind": "lesson", "content": "a is special",
+            "anchors": [{ "relpath": "src/a.rs" }]
+        }),
+    )
+    .await;
+    sync_file(&http, &base, "pub fn a() { /* SOLID */ }\n").await;
+    assert_eq!(stale_list(&http, &base, &[]).await.len(), 1);
+
+    let dry = reverify(base.clone(), true).await.report.unwrap();
+    assert_eq!((dry.checked, dry.reaffirmed), (1, 1));
+    assert_eq!(stale_list(&http, &base, &[]).await.len(), 1);
+
+    let real = reverify(base.clone(), false).await.report.unwrap();
+    assert_eq!((real.checked, real.reaffirmed), (1, 1));
+    assert!(stale_list(&http, &base, &[]).await.is_empty());
 }
 
 #[tokio::test]

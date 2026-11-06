@@ -77,7 +77,8 @@ CREATE TABLE memories (
     evidence TEXT,
     stale_at INTEGER,
     noise_count INTEGER NOT NULL DEFAULT 0,
-    helpful_at INTEGER
+    helpful_at INTEGER,
+    reverified_at INTEGER
 );
 
 CREATE TABLE memory_anchors (
