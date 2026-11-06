@@ -67,12 +67,14 @@ impl Store {
         Ok(stale)
     }
 
-    /// Stale, non-superseded memories that have anchors, with those anchors,
-    /// oldest `stale_at` first.
+    /// Stale, non-superseded memories that have anchors and have not failed
+    /// a reverification since going stale, with those anchors, oldest
+    /// `stale_at` first.
     pub fn reverifiable_memories(&self) -> Result<Vec<(MemoryRow, Vec<MemoryAnchor>)>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM memories
              WHERE status = 'stale' AND superseded_by IS NULL
+               AND (reverified_at IS NULL OR reverified_at < stale_at)
                AND EXISTS (SELECT 1 FROM memory_anchors a WHERE a.memory_id = memories.id)
              ORDER BY stale_at, id"
         ))?;
@@ -98,6 +100,16 @@ impl Store {
                 Ok((row, found))
             })
             .collect()
+    }
+
+    /// Records a failed reverification; the memory is not offered again
+    /// until a later change to its anchored file.
+    pub fn mark_reverified(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE memories SET reverified_at = unixepoch() WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
     }
 
     /// Re-hashes a stale memory's anchors to the current indexed files and

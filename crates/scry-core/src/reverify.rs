@@ -149,7 +149,12 @@ pub fn commit(
                 }
                 report.reaffirmed += 1;
             }
-            Ok(_) => report.still_stale += 1,
+            Ok(_) => {
+                if !dry_run {
+                    store.mark_reverified(candidate.id)?;
+                }
+                report.still_stale += 1;
+            }
         }
     }
     Ok(report)
@@ -351,6 +356,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_memory_is_not_rescored_while_a_newer_one_is() {
+        let (mut store, repo) = store_with_file();
+        let failed = stale_memory(&mut store, repo, "old", "a.rs", None);
+        store
+            .conn
+            .execute("UPDATE memories SET stale_at = stale_at - 100", [])
+            .unwrap();
+        let prepared = prepare(&store, 1).unwrap();
+        let scored = score(&Stub(|_: &str| Ok(0.1)), prepared.candidates).await;
+        commit(&mut store, scored, 0, 0.5, false).unwrap();
+        assert_eq!(status(&store, failed), "stale");
+
+        let newer = stale_memory(&mut store, repo, "new", "a.rs", None);
+        let prepared = prepare(&store, 1).unwrap();
+        assert_eq!(
+            prepared.candidates.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![newer]
+        );
+    }
+
+    #[tokio::test]
+    async fn redrifted_failed_memory_is_requeued() {
+        let (mut store, repo) = store_with_file();
+        let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
+        let prepared = prepare(&store, 10).unwrap();
+        let scored = score(&Stub(|_: &str| Ok(0.1)), prepared.candidates).await;
+        commit(&mut store, scored, 0, 0.5, false).unwrap();
+        store
+            .conn
+            .execute("UPDATE memories SET reverified_at = stale_at", [])
+            .unwrap();
+        assert!(prepare(&store, 10).unwrap().candidates.is_empty());
+
+        store.upsert_file(repo, "a.rs", "newer", 1, 0).unwrap();
+        store
+            .conn
+            .execute("UPDATE memories SET reverified_at = reverified_at - 5", [])
+            .unwrap();
+        store.mark_stale_anchors(repo, "a.rs").unwrap();
+        let queued = prepare(&store, 10).unwrap().candidates;
+        assert_eq!(queued.iter().map(|c| c.id).collect::<Vec<_>>(), vec![id]);
+    }
+
+    #[tokio::test]
     async fn dry_run_changes_nothing() {
         let (mut store, repo) = store_with_file();
         let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
@@ -359,5 +408,12 @@ mod tests {
         let report = commit(&mut store, scored, prepared.skipped, 0.5, true).unwrap();
         assert_eq!(report.reaffirmed, 1);
         assert_eq!(status(&store, id), "stale");
+        let scored = score(
+            &Stub(|_: &str| Ok(0.1)),
+            prepare(&store, 10).unwrap().candidates,
+        )
+        .await;
+        commit(&mut store, scored, 0, 0.5, true).unwrap();
+        assert_eq!(prepare(&store, 10).unwrap().candidates.len(), 1);
     }
 }

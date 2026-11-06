@@ -349,12 +349,13 @@ impl Store {
 
     /// Anchored memories go stale the moment their anchored file's content
     /// hash changes; sync calls this on every committed file, after the file
-    /// row holds the new hash.
+    /// row holds the new hash. Already-stale memories get a fresh `stale_at`
+    /// so a new change queues them for reverification again.
     pub fn mark_stale_anchors(&self, repo_id: i64, relpath: &str) -> Result<usize> {
         let changed = self.conn.execute(
             &format!(
                 "UPDATE memories SET status = 'stale', stale_at = unixepoch()
-                 WHERE status = 'live' AND id IN (
+                 WHERE status IN ('live', 'stale') AND id IN (
                      SELECT a.memory_id FROM memory_anchors a
                      WHERE a.repo_id = ?1 AND a.relpath = ?2 AND {ANCHOR_DRIFTED}
                  )"
