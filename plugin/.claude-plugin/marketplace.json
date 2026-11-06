@@ -9,7 +9,7 @@
       "name": "scry",
       "source": "./plugins/scry",
       "description": "Self-hosted semantic code search, shared across your devices",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "author": {
         "name": "Verdenroz"
       }

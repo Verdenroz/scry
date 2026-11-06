@@ -40,12 +40,21 @@ hard-won bug fix.
 
 ## Recall
 
-Recall score multiplies semantic similarity by stored salience, a recency
-decay (`[memory] half_life_days`, default 29), and learned utility
-(helpful retrievals over total retrievals). Memories fade with disuse and
-never hard-delete; one helpful retrieval re-strengthens them. Recall
-ranks scope and global memories together with no cap on globals; only the
+Recall ranks by semantic similarity, with stored salience (weight 0.2)
+and learned utility (helpful retrievals over total retrievals) as
+tie-breakers and stale memories at half weight. Recency plays no part in
+a query recall: on 200 judged prompts, every recency or salience-heavy
+blend injected more irrelevant memories than similarity alone. The
+prompt hook injects up to 3 memories scoring at least 0.50. Recall ranks
+scope and global memories together with no cap on globals; only the
 brief caps them.
+
+The brief and gc have no query, so they rank by salience, learned
+utility, and a recency decay (`[memory] half_life_days`, default 29).
+Recency counts from creation, the last helpful vote, reaffirm, or
+restore; a retrieval only adds to the retrieval count, so being injected
+cannot keep a memory fresh. Memories fade with disuse and never
+hard-delete; one helpful vote re-strengthens them.
 
 Noise votes suppress a memory per scope. Suppressions apply to scopes
 that exist as a repo and to requests with no scope key at all; a scope

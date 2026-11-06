@@ -70,19 +70,11 @@ pub async fn recall(
         .await?
         .pop()
         .ok_or_else(|| ApiError::Internal("empty embedding response".to_string()))?;
-    let half_life = state.memory_config.half_life_days;
     let memories = state
         .store
         .call(move |store| {
             let scope = store.scope(request.repo_key.as_deref())?;
-            recall_with_vector(
-                store,
-                scope,
-                &vector,
-                request.limit,
-                half_life,
-                request.touch,
-            )
+            recall_with_vector(store, scope, &vector, request.limit, request.touch)
         })
         .await?;
     Ok(Json(RecallResponse {

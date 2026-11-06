@@ -260,11 +260,12 @@ impl Store {
         Ok(distance.map_or(0.0, |d| (1.0 - d).clamp(0.0, 1.0)))
     }
 
+    /// Counts a retrieval. Recency moves only on creation, helpful votes,
+    /// reaffirm and restore, so injection cannot keep a memory fresh.
     pub fn touch_memories(&self, ids: &[i64]) -> Result<()> {
-        let mut stmt = self.conn.prepare(
-            "UPDATE memories SET access_count = access_count + 1, last_access = unixepoch()
-             WHERE id = ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("UPDATE memories SET access_count = access_count + 1 WHERE id = ?1")?;
         for id in ids {
             stmt.execute([id])?;
         }
