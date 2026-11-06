@@ -49,7 +49,7 @@ fn default_half_life_days() -> f64 {
 }
 
 fn default_gc_stale_days() -> u32 {
-    14
+    30
 }
 
 fn default_gc_episode_floor() -> f64 {

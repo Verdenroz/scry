@@ -1,5 +1,6 @@
 //! Re-verification of stale memories: the anchored files' current chunks are
-//! scored as evidence for the memory's claim, and a pass makes it live again.
+//! scored as evidence for the memory's claim. Support makes it live again;
+//! contradiction marks it for gc; anything else leaves it stale.
 
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +16,7 @@ const UNRANGED_CHUNKS: usize = 3;
 pub struct ReverifyReport {
     pub checked: usize,
     pub reaffirmed: usize,
+    pub contradicted: usize,
     pub still_stale: usize,
     pub skipped: usize,
     pub errors: usize,
@@ -26,6 +28,13 @@ pub struct Candidate {
     pub claim: String,
     pub evidence: String,
     pub cited: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Verdict {
+    Supported(f64),
+    Contradicted,
+    Inconclusive,
 }
 
 #[derive(Debug, Default)]
@@ -109,14 +118,17 @@ fn render(chunks: &[ChunkRow]) -> (String, String) {
 }
 
 /// Scores candidates one at a time; concurrent requests perturb a local
-/// model server. A scorer error is kept beside its candidate.
+/// model server. Contradiction is only asked of candidates the evidence does
+/// not support. A scorer error is kept beside its candidate.
 pub async fn score(
     scorer: &dyn ClaimScorer,
     candidates: Vec<Candidate>,
-) -> Vec<(Candidate, Result<f64>)> {
+    threshold: f64,
+    contradiction_threshold: f64,
+) -> Vec<(Candidate, Result<Verdict>)> {
     let mut scored = Vec::with_capacity(candidates.len());
     for candidate in candidates {
-        let result = scorer.score(&candidate.claim, &candidate.evidence).await;
+        let result = verdict(scorer, &candidate, threshold, contradiction_threshold).await;
         if let Err(error) = &result {
             tracing::warn!(id = candidate.id, %error, "reverify scoring failed");
         }
@@ -125,13 +137,32 @@ pub async fn score(
     scored
 }
 
-/// Reaffirms memories scoring at or above `threshold`. With `dry_run` it only
-/// counts.
+async fn verdict(
+    scorer: &dyn ClaimScorer,
+    candidate: &Candidate,
+    threshold: f64,
+    contradiction_threshold: f64,
+) -> Result<Verdict> {
+    let support = scorer.score(&candidate.claim, &candidate.evidence).await?;
+    if support >= threshold {
+        return Ok(Verdict::Supported(support));
+    }
+    let contradiction = scorer
+        .contradiction(&candidate.claim, &candidate.evidence)
+        .await?;
+    Ok(if contradiction >= contradiction_threshold {
+        Verdict::Contradicted
+    } else {
+        Verdict::Inconclusive
+    })
+}
+
+/// Reaffirms supported memories, stamps contradicted and inconclusive ones.
+/// With `dry_run` it only counts.
 pub fn commit(
     store: &mut Store,
-    scored: Vec<(Candidate, Result<f64>)>,
+    scored: Vec<(Candidate, Result<Verdict>)>,
     skipped: usize,
-    threshold: f64,
     dry_run: bool,
 ) -> Result<ReverifyReport> {
     let mut report = ReverifyReport {
@@ -142,14 +173,20 @@ pub fn commit(
         report.checked += 1;
         match result {
             Err(_) => report.errors += 1,
-            Ok(p) if p >= threshold => {
+            Ok(Verdict::Supported(p)) => {
                 if !dry_run {
                     let evidence = format!("reverified against {} (p={p:.2})", candidate.cited);
                     reaffirm(store, candidate.id, &evidence, &[])?;
                 }
                 report.reaffirmed += 1;
             }
-            Ok(_) => {
+            Ok(Verdict::Contradicted) => {
+                if !dry_run {
+                    store.mark_contradicted(candidate.id)?;
+                }
+                report.contradicted += 1;
+            }
+            Ok(Verdict::Inconclusive) => {
                 if !dry_run {
                     store.mark_reverified(candidate.id)?;
                 }
@@ -164,22 +201,38 @@ pub fn commit(
 mod tests {
     use super::*;
     use crate::Error;
+    use crate::config::MemoryConfig;
+    use crate::memory_gc;
     use crate::store::{NewChunk, NewMemory, Scope};
     use async_trait::async_trait;
 
     const DIM: usize = 8;
 
-    struct Stub<F>(F);
+    struct Stub<S, C>(S, C);
 
     #[async_trait]
-    impl<F: Fn(&str) -> Result<f64> + Send + Sync> ClaimScorer for Stub<F> {
+    impl<S, C> ClaimScorer for Stub<S, C>
+    where
+        S: Fn(&str) -> Result<f64> + Send + Sync,
+        C: Fn(&str) -> Result<f64> + Send + Sync,
+    {
         async fn score(&self, claim: &str, _evidence: &str) -> Result<f64> {
             (self.0)(claim)
         }
 
-        async fn contradiction(&self, _claim: &str, _evidence: &str) -> Result<f64> {
-            Ok(0.0)
+        async fn contradiction(&self, claim: &str, _evidence: &str) -> Result<f64> {
+            (self.1)(claim)
         }
+    }
+
+    fn fixed(support: f64, contradiction: f64) -> impl ClaimScorer {
+        Stub(move |_: &str| Ok(support), move |_: &str| Ok(contradiction))
+    }
+
+    async fn run(store: &mut Store, scorer: &dyn ClaimScorer, dry_run: bool) -> ReverifyReport {
+        let prepared = prepare(store, 10).unwrap();
+        let scored = score(scorer, prepared.candidates, 0.5, 0.9).await;
+        commit(store, scored, prepared.skipped, dry_run).unwrap()
     }
 
     fn padded(head: [f32; 4]) -> Vec<f32> {
@@ -288,9 +341,7 @@ mod tests {
     async fn pass_makes_the_memory_live_with_a_refreshed_hash() {
         let (mut store, repo) = store_with_file();
         let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
-        let prepared = prepare(&store, 10).unwrap();
-        let scored = score(&Stub(|_: &str| Ok(0.93)), prepared.candidates).await;
-        let report = commit(&mut store, scored, prepared.skipped, 0.5, false).unwrap();
+        let report = run(&mut store, &fixed(0.93, 1.0), false).await;
         assert_eq!(
             report,
             ReverifyReport {
@@ -306,14 +357,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fail_leaves_the_memory_stale() {
+    async fn contradiction_stamps_the_memory_and_gc_archives_it() {
         let (mut store, repo) = store_with_file();
         let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
-        let prepared = prepare(&store, 10).unwrap();
-        let scored = score(&Stub(|_: &str| Ok(0.1)), prepared.candidates).await;
-        let report = commit(&mut store, scored, prepared.skipped, 0.5, false).unwrap();
+        let report = run(&mut store, &fixed(0.1, 0.95), false).await;
+        assert_eq!((report.checked, report.contradicted), (1, 1));
+        assert_eq!(report.still_stale, 0);
+        let row = store.memory(id).unwrap().unwrap();
+        assert_eq!(row.status, "stale");
+        assert!(row.contradicted_at.is_some() && row.reverified_at.is_some());
+        assert!(store.reverifiable_memories().unwrap().is_empty());
+
+        let gc = memory_gc::gc(&mut store, &MemoryConfig::default(), false).unwrap();
+        assert_eq!(gc.contradicted, 1);
+        assert_eq!(status(&store, id), "archived");
+    }
+
+    #[tokio::test]
+    async fn inconclusive_is_stamped_and_never_aged_out() {
+        let (mut store, repo) = store_with_file();
+        let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
+        let report = run(&mut store, &fixed(0.1, 0.3), false).await;
         assert_eq!((report.checked, report.still_stale), (1, 1));
+        let row = store.memory(id).unwrap().unwrap();
+        assert!(row.reverified_at.is_some() && row.contradicted_at.is_none());
+
+        store
+            .conn
+            .execute("UPDATE memories SET stale_at = 1, reverified_at = 2", [])
+            .unwrap();
+        let gc = memory_gc::gc(&mut store, &MemoryConfig::default(), false).unwrap();
+        assert_eq!(gc.total(), 0);
         assert_eq!(status(&store, id), "stale");
+    }
+
+    #[tokio::test]
+    async fn contradiction_is_only_asked_when_support_fails() {
+        let (mut store, repo) = store_with_file();
+        stale_memory(&mut store, repo, "claim", "a.rs", None);
+        let scorer = Stub(
+            |_: &str| Ok(0.93),
+            |_: &str| Err(Error::Verify("unreachable".to_string())),
+        );
+        let report = run(&mut store, &scorer, false).await;
+        assert_eq!((report.reaffirmed, report.errors), (1, 0));
     }
 
     #[test]
@@ -341,36 +428,42 @@ mod tests {
         let (mut store, repo) = store_with_file();
         let first = stale_memory(&mut store, repo, "boom", "a.rs", None);
         let second = stale_memory(&mut store, repo, "fine", "a.rs", None);
-        let prepared = prepare(&store, 10).unwrap();
-        let scorer = Stub(|claim: &str| {
+        let fail = |claim: &str| {
             if claim == "boom" {
                 Err(Error::Verify("down".to_string()))
             } else {
                 Ok(0.9)
             }
-        });
-        let scored = score(&scorer, prepared.candidates).await;
-        let report = commit(&mut store, scored, prepared.skipped, 0.5, false).unwrap();
+        };
+        let report = run(&mut store, &Stub(fail, fail), false).await;
         assert_eq!(
             (report.checked, report.errors, report.reaffirmed),
             (2, 1, 1)
         );
         assert_eq!(status(&store, first), "stale");
         assert_eq!(status(&store, second), "live");
+        assert!(
+            store
+                .memory(first)
+                .unwrap()
+                .unwrap()
+                .reverified_at
+                .is_none()
+        );
     }
 
     #[tokio::test]
-    async fn failed_memory_is_not_rescored_while_a_newer_one_is() {
+    async fn checked_memory_is_not_rescored_while_a_newer_one_is() {
         let (mut store, repo) = store_with_file();
-        let failed = stale_memory(&mut store, repo, "old", "a.rs", None);
+        let checked = stale_memory(&mut store, repo, "old", "a.rs", None);
         store
             .conn
             .execute("UPDATE memories SET stale_at = stale_at - 100", [])
             .unwrap();
         let prepared = prepare(&store, 1).unwrap();
-        let scored = score(&Stub(|_: &str| Ok(0.1)), prepared.candidates).await;
-        commit(&mut store, scored, 0, 0.5, false).unwrap();
-        assert_eq!(status(&store, failed), "stale");
+        let scored = score(&fixed(0.1, 0.0), prepared.candidates, 0.5, 0.9).await;
+        commit(&mut store, scored, 0, false).unwrap();
+        assert_eq!(status(&store, checked), "stale");
 
         let newer = stale_memory(&mut store, repo, "new", "a.rs", None);
         let prepared = prepare(&store, 1).unwrap();
@@ -381,43 +474,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn redrifted_failed_memory_is_requeued() {
-        let (mut store, repo) = store_with_file();
-        let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
-        let prepared = prepare(&store, 10).unwrap();
-        let scored = score(&Stub(|_: &str| Ok(0.1)), prepared.candidates).await;
-        commit(&mut store, scored, 0, 0.5, false).unwrap();
-        store
-            .conn
-            .execute("UPDATE memories SET reverified_at = stale_at", [])
-            .unwrap();
-        assert!(prepare(&store, 10).unwrap().candidates.is_empty());
+    async fn redrifted_memory_is_requeued_after_any_verdict() {
+        for contradiction in [0.0, 1.0] {
+            let (mut store, repo) = store_with_file();
+            let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
+            run(&mut store, &fixed(0.1, contradiction), false).await;
+            store
+                .conn
+                .execute("UPDATE memories SET reverified_at = stale_at", [])
+                .unwrap();
+            assert!(prepare(&store, 10).unwrap().candidates.is_empty());
 
-        store.upsert_file(repo, "a.rs", "newer", 1, 0).unwrap();
-        store
-            .conn
-            .execute("UPDATE memories SET reverified_at = reverified_at - 5", [])
-            .unwrap();
-        store.mark_stale_anchors(repo, "a.rs").unwrap();
-        let queued = prepare(&store, 10).unwrap().candidates;
-        assert_eq!(queued.iter().map(|c| c.id).collect::<Vec<_>>(), vec![id]);
+            store.upsert_file(repo, "a.rs", "newer", 1, 0).unwrap();
+            store
+                .conn
+                .execute(
+                    "UPDATE memories SET reverified_at = reverified_at - 5,
+                         contradicted_at = contradicted_at - 5",
+                    [],
+                )
+                .unwrap();
+            store.mark_stale_anchors(repo, "a.rs").unwrap();
+            let queued = prepare(&store, 10).unwrap().candidates;
+            assert_eq!(queued.iter().map(|c| c.id).collect::<Vec<_>>(), vec![id]);
+
+            let gc = memory_gc::gc(&mut store, &MemoryConfig::default(), false).unwrap();
+            assert_eq!(gc.total(), 0);
+        }
     }
 
     #[tokio::test]
     async fn dry_run_changes_nothing() {
         let (mut store, repo) = store_with_file();
         let id = stale_memory(&mut store, repo, "claim", "a.rs", None);
-        let prepared = prepare(&store, 10).unwrap();
-        let scored = score(&Stub(|_: &str| Ok(0.93)), prepared.candidates).await;
-        let report = commit(&mut store, scored, prepared.skipped, 0.5, true).unwrap();
+        let report = run(&mut store, &fixed(0.93, 0.0), true).await;
         assert_eq!(report.reaffirmed, 1);
-        assert_eq!(status(&store, id), "stale");
-        let scored = score(
-            &Stub(|_: &str| Ok(0.1)),
-            prepare(&store, 10).unwrap().candidates,
-        )
-        .await;
-        commit(&mut store, scored, 0, 0.5, true).unwrap();
+        let report = run(&mut store, &fixed(0.1, 1.0), true).await;
+        assert_eq!(report.contradicted, 1);
+        let report = run(&mut store, &fixed(0.1, 0.0), true).await;
+        assert_eq!(report.still_stale, 1);
+        let row = store.memory(id).unwrap().unwrap();
+        assert_eq!(row.status, "stale");
+        assert!(row.reverified_at.is_none() && row.contradicted_at.is_none());
         assert_eq!(prepare(&store, 10).unwrap().candidates.len(), 1);
     }
 }

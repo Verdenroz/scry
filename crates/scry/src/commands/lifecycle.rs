@@ -77,6 +77,7 @@ pub async fn gc(args: &[String]) -> Result<()> {
     let ctx = repo_context()?;
     let report = ctx.client.gc(&GcRequest { dry_run }).await?;
     println!("superseded: {}", report.superseded);
+    println!("contradicted: {}", report.contradicted);
     println!("stale: {}", report.stale);
     println!("episodes: {}", report.episodes);
     println!("noise: {}", report.noise);
@@ -110,6 +111,7 @@ pub async fn reverify(args: &[String]) -> Result<()> {
     };
     println!("checked: {}", report.checked);
     println!("reaffirmed: {}", report.reaffirmed);
+    println!("contradicted: {}", report.contradicted);
     println!("still_stale: {}", report.still_stale);
     println!("skipped: {}", report.skipped);
     println!("errors: {}", report.errors);
