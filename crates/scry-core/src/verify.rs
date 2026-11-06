@@ -19,9 +19,23 @@ Does the evidence, on its own, fully support every part of the claim? Answer no 
 
 const SYSTEMONE_QUESTION: &str = "Does the evidence, on its own, fully support every part of the claim? Answer no if the claim is only partly supported, needs facts not shown in the evidence, or is contradicted.";
 
+const CONTRADICTION_PROMPT: &str = "You check whether evidence contradicts a claim.
+
+Evidence:
+<<<
+{evidence}
+>>>
+
+Claim: {claim}
+
+Does the evidence show that the claim is no longer true? Answer yes only if the evidence directly conflicts with the claim. Answer no if the claim is merely not shown, not mentioned, or cannot be judged from the evidence. Answer with exactly one word: yes or no.";
+
+const CONTRADICTION_QUESTION: &str = "Does the evidence show that the claim is no longer true? Answer yes only if the evidence directly conflicts with the claim. Answer no if the claim is merely not shown, not mentioned, or cannot be judged from the evidence.";
+
 #[async_trait]
 pub trait ClaimScorer: Send + Sync {
     async fn score(&self, claim: &str, evidence: &str) -> Result<f64>;
+    async fn contradiction(&self, claim: &str, evidence: &str) -> Result<f64>;
 }
 
 pub struct Verifier {
@@ -92,14 +106,33 @@ impl Verifier {
         self.config.threshold
     }
 
+    pub fn contradiction_threshold(&self) -> f64 {
+        self.config.contradiction_threshold
+    }
+
     pub async fn score(&self, claim: &str, evidence: &str) -> Result<f64> {
+        let prompt = self.config.prompt.as_deref().unwrap_or(DEFAULT_PROMPT);
+        self.ask(prompt, SYSTEMONE_QUESTION, claim, evidence).await
+    }
+
+    pub async fn contradiction(&self, claim: &str, evidence: &str) -> Result<f64> {
+        self.ask(
+            CONTRADICTION_PROMPT,
+            CONTRADICTION_QUESTION,
+            claim,
+            evidence,
+        )
+        .await
+    }
+
+    async fn ask(&self, prompt: &str, question: &str, claim: &str, evidence: &str) -> Result<f64> {
         match self.config.api {
-            VerifyApi::Chat => self.score_chat(claim, evidence).await,
-            VerifyApi::SystemOne => self.score_systemone(claim, evidence).await,
+            VerifyApi::Chat => self.score_chat(prompt, claim, evidence).await,
+            VerifyApi::SystemOne => self.score_systemone(question, claim, evidence).await,
         }
     }
 
-    async fn score_chat(&self, claim: &str, evidence: &str) -> Result<f64> {
+    async fn score_chat(&self, prompt: &str, claim: &str, evidence: &str) -> Result<f64> {
         let url = format!(
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
@@ -111,7 +144,7 @@ impl Verifier {
             "temperature": 0,
             "logprobs": true,
             "top_logprobs": 10,
-            "messages": [{ "role": "user", "content": render_prompt(&self.config, claim, evidence) }],
+            "messages": [{ "role": "user", "content": render_prompt(prompt, claim, evidence) }],
             "chat_template_kwargs": { "enable_thinking": false },
         });
         let reply: ChatReply = self.post(&url, &body).await?;
@@ -123,12 +156,12 @@ impl Verifier {
         chat_score(choice)
     }
 
-    async fn score_systemone(&self, claim: &str, evidence: &str) -> Result<f64> {
+    async fn score_systemone(&self, question: &str, claim: &str, evidence: &str) -> Result<f64> {
         let url = format!("{}/systemone", self.config.base_url.trim_end_matches('/'));
         let body = serde_json::json!({
             "model": self.config.model,
             "state": { "claim": claim, "evidence": evidence },
-            "questions": { "q": { "type": "noul", "instructions": SYSTEMONE_QUESTION } },
+            "questions": { "q": { "type": "noul", "instructions": question } },
         });
         let reply: SystemOneReply = self.post(&url, &body).await?;
         Ok(reply.answers.q.noul.clamp(0.0, 1.0))
@@ -156,10 +189,14 @@ impl ClaimScorer for Verifier {
     async fn score(&self, claim: &str, evidence: &str) -> Result<f64> {
         Verifier::score(self, claim, evidence).await
     }
+
+    async fn contradiction(&self, claim: &str, evidence: &str) -> Result<f64> {
+        Verifier::contradiction(self, claim, evidence).await
+    }
 }
 
-fn render_prompt(config: &VerifyConfig, claim: &str, evidence: &str) -> String {
-    let mut rest = config.prompt.as_deref().unwrap_or(DEFAULT_PROMPT);
+fn render_prompt(template: &str, claim: &str, evidence: &str) -> String {
+    let mut rest = template;
     let mut out = String::new();
     while let Some(i) = rest.find('{') {
         out.push_str(&rest[..i]);
@@ -250,13 +287,12 @@ mod tests {
 
     #[test]
     fn prompt_override_replaces_the_default() {
-        let mut config: VerifyConfig = toml::from_str("base_url = \"u\"\nmodel = \"m\"\n").unwrap();
-        let default = render_prompt(&config, "C1", "E1");
+        let default = render_prompt(DEFAULT_PROMPT, "C1", "E1");
         assert!(default.contains("Claim: C1") && default.contains("E1"));
-        config.prompt = Some("{evidence} => {claim}?".to_string());
-        assert_eq!(render_prompt(&config, "C1", "E1"), "E1 => C1?");
+        let custom = "{evidence} => {claim}?";
+        assert_eq!(render_prompt(custom, "C1", "E1"), "E1 => C1?");
         assert_eq!(
-            render_prompt(&config, "{evidence}", "{claim}"),
+            render_prompt(custom, "{evidence}", "{claim}"),
             "{claim} => {evidence}?"
         );
     }

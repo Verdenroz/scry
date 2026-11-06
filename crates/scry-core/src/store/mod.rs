@@ -22,7 +22,7 @@ use rusqlite::ffi::sqlite3_auto_extension;
 use crate::{Error, Result};
 
 const SCHEMA: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: u32 = 7;
+const SCHEMA_VERSION: u32 = 8;
 
 static VEC_EXTENSION: Once = Once::new();
 
@@ -185,6 +185,8 @@ impl Store {
 /// legacy stale rows get a `stale_at`.
 /// v5 -> v6: work lists, items, and per-list state.
 /// v6 -> v7: memories gain `reverified_at`.
+/// v7 -> v8: memories gain `contradicted_at`; earlier reverifications only
+/// asked the support question, so `reverified_at` is cleared.
 fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     let version: String = conn.query_row(
         "SELECT value FROM meta WHERE key = 'schema_version'",
@@ -216,6 +218,9 @@ fn migrate(conn: &Connection, dim: usize) -> Result<()> {
     }
     if version < 7 {
         conn.execute_batch(MIGRATE_V6_TO_V7)?;
+    }
+    if version < 8 {
+        conn.execute_batch(MIGRATE_V7_TO_V8)?;
     }
     Ok(())
 }
@@ -308,6 +313,12 @@ const MIGRATE_V6_TO_V7: &str = "BEGIN;
     UPDATE meta SET value = '7' WHERE key = 'schema_version';
     COMMIT;";
 
+const MIGRATE_V7_TO_V8: &str = "BEGIN;
+    ALTER TABLE memories ADD COLUMN contradicted_at INTEGER;
+    UPDATE memories SET reverified_at = NULL;
+    UPDATE meta SET value = '8' WHERE key = 'schema_version';
+    COMMIT;";
+
 fn vec_memories_ddl(dim: usize) -> String {
     format!(
         "CREATE VIRTUAL TABLE vec_memories USING vec0(
@@ -365,6 +376,34 @@ mod tests {
     }
 
     #[test]
+    fn v8_migration_clears_reverified_at() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.db");
+        {
+            let store = Store::open(&path, "m", 8).unwrap();
+            store
+                .conn
+                .execute_batch(
+                    "INSERT INTO memories (kind, content, status, reverified_at)
+                         VALUES ('lesson', 'checked', 'stale', 5);
+                     ALTER TABLE memories DROP COLUMN contradicted_at;
+                     UPDATE meta SET value = '7' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let store = Store::open(&path, "m", 8).unwrap();
+        let (reverified, contradicted): (Option<i64>, Option<i64>) = store
+            .conn
+            .query_row(
+                "SELECT reverified_at, contradicted_at FROM memories",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((reverified, contradicted), (None, None));
+    }
+
+    #[test]
     fn rejects_mismatched_embedding_config() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");
@@ -374,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_through_v7() {
+    fn migrates_v1_through_v8() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");
         {
@@ -416,6 +455,7 @@ mod tests {
                      DROP TABLE chunk_vectors;
                      DROP TRIGGER chunks_count_ai; DROP TRIGGER chunks_count_ad;
                      ALTER TABLE repos DROP COLUMN chunk_count;
+                     ALTER TABLE memories DROP COLUMN contradicted_at;
                      ALTER TABLE memories DROP COLUMN reverified_at;
                      ALTER TABLE memories DROP COLUMN source;
                      ALTER TABLE memories DROP COLUMN evidence;
@@ -456,7 +496,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "7");
+        assert_eq!(version, "8");
         assert!(store.work_lists(1, None, false).unwrap().is_empty());
         let hits = store.lexical_search(None, "\"domains\"", 5, None).unwrap();
         assert_eq!(hits.len(), 1);

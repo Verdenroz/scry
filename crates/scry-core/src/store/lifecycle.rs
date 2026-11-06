@@ -55,7 +55,7 @@ impl Store {
         args.extend(files.iter().map(|file| file as &dyn ToSql));
         let stale = stmt
             .query_map(args.as_slice(), |row| {
-                let joined: Option<String> = row.get(12)?;
+                let joined: Option<String> = row.get(14)?;
                 let mut relpaths: Vec<String> = joined
                     .iter()
                     .flat_map(|joined| joined.split('\u{1f}').map(str::to_string))
@@ -67,8 +67,8 @@ impl Store {
         Ok(stale)
     }
 
-    /// Stale, non-superseded memories that have anchors and have not failed
-    /// a reverification since going stale, with those anchors, oldest
+    /// Stale, non-superseded memories that have anchors and have not been
+    /// reverified since going stale, with those anchors, oldest
     /// `stale_at` first.
     pub fn reverifiable_memories(&self) -> Result<Vec<(MemoryRow, Vec<MemoryAnchor>)>> {
         let mut stmt = self.conn.prepare(&format!(
@@ -102,11 +102,22 @@ impl Store {
             .collect()
     }
 
-    /// Records a failed reverification; the memory is not offered again
-    /// until a later change to its anchored file.
+    /// Records an inconclusive reverification; the memory is not offered
+    /// again until a later change to its anchored file.
     pub fn mark_reverified(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE memories SET reverified_at = unixepoch() WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
+    }
+
+    /// Records a reverification that found the anchored code contradicting
+    /// the memory; gc archives it without waiting.
+    pub fn mark_contradicted(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE memories SET reverified_at = unixepoch(), contradicted_at = unixepoch()
+             WHERE id = ?1",
             [id],
         )?;
         Ok(())
