@@ -1,5 +1,6 @@
 use rusqlite::{Connection, Row, params};
 
+use super::chunks::bytes_to_vector;
 use super::{Store, vector_bytes};
 use crate::Result;
 
@@ -240,6 +241,15 @@ impl Store {
             })?
             .collect::<std::result::Result<_, _>>()?;
         Ok(near)
+    }
+
+    pub fn memory_embedding(&self, id: i64) -> Result<Vec<f32>> {
+        let bytes: Vec<u8> = self.conn.query_row(
+            "SELECT embedding FROM vec_memories WHERE memory_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        Ok(bytes_to_vector(&bytes))
     }
 
     /// Highest cosine similarity to any existing memory; the complement is

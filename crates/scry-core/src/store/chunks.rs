@@ -45,7 +45,7 @@ pub struct LexicalHit {
     pub rank: f64,
 }
 
-fn bytes_to_vector(bytes: &[u8]) -> Vec<f32> {
+pub(super) fn bytes_to_vector(bytes: &[u8]) -> Vec<f32> {
     bytes
         .as_chunks::<4>()
         .0
@@ -337,6 +337,48 @@ impl Store {
                     .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows.into())
             })
             .collect()
+    }
+
+    /// Chunks of one file that overlap the inclusive line range, in file order.
+    pub fn chunks_overlapping(
+        &self,
+        repo_id: i64,
+        relpath: &str,
+        start_line: u32,
+        end_line: u32,
+    ) -> Result<Vec<ChunkRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id FROM chunks c JOIN files f ON f.id = c.file_id
+             WHERE f.repo_id = ?1 AND f.relpath = ?2 AND c.start_line <= ?4 AND c.end_line >= ?3
+             ORDER BY c.start_line",
+        )?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![repo_id, relpath, start_line, end_line], |row| {
+                row.get(0)
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        self.hydrate_chunks(&ids)
+    }
+
+    /// The `k` chunks of one file nearest the query by cosine, best first.
+    pub fn nearest_file_chunks(
+        &self,
+        repo_id: i64,
+        relpath: &str,
+        query: &[f32],
+        k: usize,
+    ) -> Result<Vec<ChunkRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT v.chunk_id, v.embedding FROM chunk_vectors v
+             JOIN chunks c ON c.id = v.chunk_id
+             JOIN files f ON f.id = c.file_id
+             WHERE f.repo_id = ?1 AND f.relpath = ?2",
+        )?;
+        let ids: Vec<i64> = nearest(&mut stmt, params![repo_id, relpath], query, k)?
+            .into_iter()
+            .map(|hit| hit.chunk_id)
+            .collect();
+        self.hydrate_chunks(&ids)
     }
 
     pub fn symbols(&self, repo_id: Option<i64>) -> Result<Vec<String>> {
