@@ -23,3 +23,10 @@ walltime = "hard"
 
 [docs]
 package = ["scry"]
+
+# The crates whose API the changelog diffs; neither has a bench target.
+[changelog]
+packages = ["scry-core", "scry-server"]
+
+[bot]
+labels = true
