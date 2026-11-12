@@ -23,8 +23,14 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-      pages: write
-    uses: Verdenroz/soothfast/.github/workflows/run.yml@2eef2fce3a9f985c3507a9175ba32943ed806dd1
+    uses: Verdenroz/soothfast/.github/workflows/run.yml@348d98f61fddaaea7528b9cb011374c081fd1f9c
     with:
-      soothfast_ref: "2eef2fce3a9f985c3507a9175ba32943ed806dd1"
+      soothfast_ref: "348d98f61fddaaea7528b9cb011374c081fd1f9c"
       bot: true
+  pages:
+    needs: soothfast
+    if: github.event_name == 'push'
+    permissions:
+      pages: write
+      id-token: write
+    uses: Verdenroz/soothfast/.github/workflows/pages.yml@348d98f61fddaaea7528b9cb011374c081fd1f9c
