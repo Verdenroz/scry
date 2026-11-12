@@ -30,3 +30,7 @@ packages = ["scry-core", "scry-server"]
 
 [bot]
 labels = true
+
+# Publishes the docs site from the soothfast workflow on a push to main.
+[ci]
+pages = true
