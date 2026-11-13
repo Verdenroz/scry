@@ -40,6 +40,8 @@ pub struct MemoryRow {
     pub stale_at: Option<i64>,
     pub superseded_by: Option<i64>,
     pub helpful_at: Option<i64>,
+    pub reverified_at: Option<i64>,
+    pub contradicted_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +117,7 @@ fn suppressed_in(partition: i64) -> String {
 pub(super) const ANCHOR_DRIFTED: &str = "NOT EXISTS (SELECT 1 FROM files f
      WHERE f.repo_id = a.repo_id AND f.relpath = a.relpath AND f.xxh64 = a.xxh64)";
 
-pub(super) const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at, superseded_by, helpful_at";
+pub(super) const ROW_COLUMNS: &str = "id, repo_id, kind, content, salience, status, last_access, access_count, helpful_count, stale_at, superseded_by, helpful_at, reverified_at, contradicted_at";
 
 pub(super) fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
     Ok(MemoryRow {
@@ -131,6 +133,8 @@ pub(super) fn memory_row(row: &Row) -> rusqlite::Result<MemoryRow> {
         stale_at: row.get(9)?,
         superseded_by: row.get(10)?,
         helpful_at: row.get(11)?,
+        reverified_at: row.get(12)?,
+        contradicted_at: row.get(13)?,
     })
 }
 
