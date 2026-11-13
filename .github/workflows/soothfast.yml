@@ -5,6 +5,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "*/30 * * * *"
 
 permissions:
   contents: read
@@ -21,6 +23,14 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    uses: Verdenroz/soothfast/.github/workflows/run.yml@c115134ae4369862836206660610ebf0a1a51eb3 # v0.5.3
+    uses: Verdenroz/soothfast/.github/workflows/run.yml@2ae46646f150426bb2c18a8c27ff8e75c7e452c5
     with:
-      soothfast_ref: "c115134ae4369862836206660610ebf0a1a51eb3"
+      soothfast_ref: "2ae46646f150426bb2c18a8c27ff8e75c7e452c5"
+      bot: true
+  pages:
+    needs: soothfast
+    if: github.event_name == 'push'
+    permissions:
+      pages: write
+      id-token: write
+    uses: Verdenroz/soothfast/.github/workflows/pages.yml@2ae46646f150426bb2c18a8c27ff8e75c7e452c5
