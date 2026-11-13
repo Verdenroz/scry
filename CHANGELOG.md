@@ -21,6 +21,7 @@
 
 ### 🔧 Internal
 
+- Move the soothfast jobs onto the generated workflow (#39)
 - Gate the hooks benchmarks with soothfast (#31)
 - plugin: Drop claude-mem guard and the scry skill (#27)
 
