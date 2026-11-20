@@ -14,7 +14,7 @@ expect = ["crates/scry-server/src/store_actor.rs"]
 
 [[case]]
 query = "how are memories marked stale when the file they point at changes"
-expect = ["crates/scry-core/src/store/memories.rs:175", "crates/scry-core/src/index.rs:101"]
+expect = ["crates/scry-core/src/store/memories.rs:358", "crates/scry-core/src/index.rs:101"]
 
 [[case]]
 query = "turn a git remote into a stable repository key"
@@ -22,19 +22,19 @@ expect = ["crates/scry-core/src/repo.rs:27"]
 
 [[case]]
 query = "decide whether a query is keyword-ish or natural language"
-expect = ["crates/scry-core/src/search.rs:48"]
+expect = ["crates/scry-core/src/search.rs:49"]
 
 [[case]]
 query = "reciprocal rank fusion of the dense and lexical result lists"
-expect = ["crates/scry-core/src/search.rs:245"]
+expect = ["crates/scry-core/src/search.rs:246"]
 
 [[case]]
 query = "binary quantized coarse pass before rescoring with float vectors"
-expect = ["crates/scry-core/src/store/chunks.rs:189"]
+expect = ["crates/scry-core/src/store/chunks.rs:206"]
 
 [[case]]
 query = "split a source file into function-level chunks with tree-sitter"
-expect = ["crates/scry-core/src/chunker/treesitter.rs:242"]
+expect = ["crates/scry-core/src/chunker/treesitter.rs:264"]
 
 [[case]]
 query = "fixed line windows with overlap for files without a grammar"
@@ -58,15 +58,15 @@ expect = ["crates/scry-core/src/embed.rs:105"]
 
 [[case]]
 query = "refuse to open a database built with a different embedding model"
-expect = ["crates/scry-core/src/store/mod.rs:100"]
+expect = ["crates/scry-core/src/store/mod.rs:115"]
 
 [[case]]
 query = "config file lookup order and environment overrides"
-expect = ["crates/scry-core/src/config.rs:259", "crates/scry-core/src/config.rs:281"]
+expect = ["crates/scry-core/src/config.rs:365", "crates/scry-core/src/config.rs:390"]
 
 [[case]]
 query = "secret values that reference an environment variable"
-expect = ["crates/scry-core/src/config.rs:250"]
+expect = ["crates/scry-core/src/config.rs:356"]
 
 [[case]]
 query = "which files are skipped when walking a repository"
@@ -74,15 +74,15 @@ expect = ["crates/scry-core/src/walk.rs:31", "crates/scry-core/src/walk.rs:11"]
 
 [[case]]
 query = "how a memory's importance is computed when it is written"
-expect = ["crates/scry-core/src/memory.rs:56"]
+expect = ["crates/scry-core/src/memory.rs:70"]
 
 [[case]]
 query = "recall ranking combines similarity with decay and learned utility"
-expect = ["crates/scry-core/src/memory.rs:63"]
+expect = ["crates/scry-core/src/memory.rs:70"]
 
 [[case]]
 query = "generate a hypothetical code snippet to improve the query embedding"
-expect = ["crates/scry-core/src/search.rs:163"]
+expect = ["crates/scry-core/src/search.rs:164"]
 
 [[case]]
 query = "disable the model's thinking mode in chat requests"
@@ -98,7 +98,7 @@ expect = ["crates/scry-server/src/auth.rs"]
 
 [[case]]
 query = "client uploads changed files in batches after comparing hashes"
-expect = ["crates/scry/src/commands/index.rs:43"]
+expect = ["crates/scry/src/commands/index.rs:46"]
 
 [[case]]
 query = "re-sync the repository whenever files change on disk"
@@ -106,7 +106,7 @@ expect = ["crates/scry/src/commands/watch.rs"]
 
 [[case]]
 query = "never treat the home directory as a project"
-expect = ["crates/scry/src/commands/mod.rs:24"]
+expect = ["crates/scry/src/commands/mod.rs:27"]
 
 [[case]]
 query = "print results as path:start-end with a percent match"
@@ -114,7 +114,7 @@ expect = ["crates/scry/src/output.rs"]
 
 [[case]]
 query = "unknown command line flags are ignored instead of failing"
-expect = ["crates/scry/src/cli.rs:47"]
+expect = ["crates/scry/src/cli.rs:74"]
 
 [[case]]
 query = "score retrieval quality against a golden set"
@@ -140,7 +140,7 @@ expect = ["crates/scry-server/src/store_actor.rs:15"]
 
 [[case]]
 query = "mark_stale_anchors"
-expect = ["crates/scry-core/src/store/memories.rs:175"]
+expect = ["crates/scry-core/src/store/memories.rs:358"]
 
 [[case]]
 query = "normalize remote url"
@@ -148,23 +148,23 @@ expect = ["crates/scry-core/src/repo.rs:27"]
 
 [[case]]
 query = "expand_symbols"
-expect = ["crates/scry-core/src/search.rs:110"]
+expect = ["crates/scry-core/src/search.rs:111"]
 
 [[case]]
 query = "fts query builder"
-expect = ["crates/scry-core/src/search.rs:142"]
+expect = ["crates/scry-core/src/search.rs:143"]
 
 [[case]]
 query = "replace_file_chunks"
-expect = ["crates/scry-core/src/store/chunks.rs:87"]
+expect = ["crates/scry-core/src/store/chunks.rs:144"]
 
 [[case]]
 query = "hydrate chunks"
-expect = ["crates/scry-core/src/store/chunks.rs:267"]
+expect = ["crates/scry-core/src/store/chunks.rs:309"]
 
 [[case]]
 query = "vector_for_hash"
-expect = ["crates/scry-core/src/store/chunks.rs:69"]
+expect = ["crates/scry-core/src/store/chunks.rs:126"]
 
 [[case]]
 query = "HttpEmbedder"
@@ -172,11 +172,11 @@ expect = ["crates/scry-core/src/embed.rs"]
 
 [[case]]
 query = "compose salience"
-expect = ["crates/scry-core/src/memory.rs:56"]
+expect = ["crates/scry-core/src/memory.rs:70"]
 
 [[case]]
 query = "parse_byte_size"
-expect = ["crates/scry-core/src/config.rs:208"]
+expect = ["crates/scry-core/src/config.rs:314"]
 
 [[case]]
 query = "MAX_DEF_LINES"
@@ -188,7 +188,7 @@ expect = ["crates/scry-core/src/store/chunks.rs"]
 
 [[case]]
 query = "ApiClient post"
-expect = ["crates/scry/src/client.rs:30"]
+expect = ["crates/scry/src/client.rs:43"]
 
 # docs and config
 
@@ -254,17 +254,17 @@ path_prefix = "crates/scry-server/src/routes"
 
 [[case]]
 query = "delete a repository and everything indexed under it"
-expect = ["crates/scry-core/src/store/files.rs:59"]
+expect = ["crates/scry-core/src/store/files.rs:61"]
 path_prefix = "crates/scry-core/src/store"
 
 [[case]]
 query = "recall memories"
-expect = ["crates/scry/src/commands/memory.rs:79"]
+expect = ["crates/scry/src/commands/memory.rs:93"]
 path_prefix = "crates/scry/src/commands"
 
 [[case]]
 query = "language detection from file extension"
-expect = ["crates/scry-core/src/chunker/treesitter.rs:30"]
+expect = ["crates/scry-core/src/chunker/treesitter.rs:31"]
 path_prefix = "crates/scry-core/src/chunker"
 
 [[case]]

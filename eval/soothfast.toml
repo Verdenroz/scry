@@ -8,15 +8,15 @@ repo = "github.com/Verdenroz/soothfast"
 
 [[case]]
 query = "how does the tool decide a benchmark got slower and fail the build"
-expect = ["cargo-soothfast/src/gate.rs"]
+expect = ["cargo-soothfast/src/gate/compare.rs"]
 
 [[case]]
 query = "where is the percentage limit widened when the machine is noisy"
-expect = ["cargo-soothfast/src/gate.rs:52"]
+expect = ["cargo-soothfast/src/gate/thresholds.rs:42"]
 
 [[case]]
 query = "how are two versions of the code measured back to back in a scratch checkout"
-expect = ["cargo-soothfast/src/gate.rs:654", "cargo-soothfast/src/invoke.rs:1028"]
+expect = ["cargo-soothfast/src/gate/measure.rs:37", "cargo-soothfast/src/invoke/worktree.rs:14"]
 
 [[case]]
 query = "how is whitespace normalized before an item's source is fingerprinted"
@@ -24,31 +24,31 @@ expect = ["soothfast-docs/src/comments.rs:10"]
 
 [[case]]
 query = "where are the prose markers and code fences located inside a page"
-expect = ["soothfast-docs/src/markdown.rs:121"]
+expect = ["soothfast-docs/src/markdown.rs:129"]
 
 [[case]]
 query = "how is a stated number checked against the recorded run"
-expect = ["soothfast-docs/src/claims.rs:88"]
+expect = ["soothfast-docs/src/claims.rs:163"]
 
 [[case]]
 query = "where is an expression with an operator and a numeric bound turned into a struct"
-expect = ["soothfast-docs/src/claims.rs:38"]
+expect = ["soothfast-docs/src/claims.rs:52"]
 
 [[case]]
 query = "how does a fenced example become a real unit test file"
-expect = ["soothfast-docs/src/gentests.rs:42"]
+expect = ["soothfast-docs/src/gentests.rs:171"]
 
 [[case]]
 query = "how is the list of public items read out of rustdoc output"
-expect = ["soothfast-docs/src/surface.rs:97"]
+expect = ["soothfast-docs/src/surface.rs:114"]
 
 [[case]]
 query = "where does it compute what was added or removed from the public api"
-expect = ["soothfast-docs/src/diff.rs:27"]
+expect = ["soothfast-docs/src/diff.rs:29"]
 
 [[case]]
 query = "how many exported items carry documentation, where is that tallied"
-expect = ["cargo-soothfast/src/coverage.rs:94"]
+expect = ["cargo-soothfast/src/coverage.rs:100"]
 
 [[case]]
 query = "where is the median and spread of timing samples computed"
@@ -68,11 +68,11 @@ expect = ["soothfast-measure/src/asyncexec.rs:17"]
 
 [[case]]
 query = "where does it shell out to valgrind for a deterministic instruction count"
-expect = ["soothfast-measure/src/callgrind.rs:119"]
+expect = ["soothfast-measure/src/callgrind.rs:442"]
 
 [[case]]
 query = "where does the agent-facing stdio server answer tool calls"
-expect = ["cargo-soothfast/src/mcp.rs:96"]
+expect = ["cargo-soothfast/src/mcp.rs:103"]
 
 [[case]]
 query = "how are handlers matched up with the operations a contract file declares"
@@ -100,23 +100,23 @@ expect = ["soothfast-site/src/color.rs:186"]
 
 [[case]]
 query = "how are svg charts of drift over time drawn"
-expect = ["soothfast-report/src/trend_chart.rs:47"]
+expect = ["soothfast-report/src/trend_chart.rs:50"]
 
 [[case]]
 query = "how can a test swap a backend for a fake one at run time"
-expect = ["soothfast-registry/src/lib.rs:476"]
+expect = ["soothfast-registry/src/lib.rs:507"]
 
 [[case]]
 query = "fnv1a"
-expect = ["soothfast-registry/src/lib.rs:502"]
+expect = ["soothfast-registry/src/lib.rs:533"]
 
 [[case]]
 query = "splice_output"
-expect = ["soothfast-docs/src/markdown.rs:212"]
+expect = ["soothfast-docs/src/markdown.rs:220"]
 
 [[case]]
 query = "sanitized_stem"
-expect = ["soothfast-docs/src/gentests.rs:12"]
+expect = ["soothfast-docs/src/gentests.rs:13"]
 
 [[case]]
 query = "role_from_seed"
@@ -132,7 +132,7 @@ expect = ["soothfast-macros/src/lib.rs:89"]
 
 [[case]]
 query = "wire_name_field"
-expect = ["soothfast-spec/src/schema/serde_attrs.rs:184", "soothfast-spec/src/schema/graphql_attrs.rs:211"]
+expect = ["soothfast-spec/src/schema/serde_attrs.rs:184", "soothfast-spec/src/schema/graphql_attrs.rs:216"]
 
 [[case]]
 query = "template_matches"
@@ -144,7 +144,7 @@ expect = ["soothfast-spec/src/proto.rs:20"]
 
 [[case]]
 query = "with_merge_base_worktree"
-expect = ["cargo-soothfast/src/invoke.rs:1028"]
+expect = ["cargo-soothfast/src/invoke/worktree.rs:14"]
 
 [[case]]
 query = "manylinux warning"
@@ -160,7 +160,7 @@ expect = ["soothfast-sdk/src/envtemplate.rs:39"]
 
 [[case]]
 query = "changes_from_subjects"
-expect = ["soothfast-report/src/changelog.rs:72"]
+expect = ["soothfast-report/src/changelog.rs:79"]
 
 [[case]]
 query = "sniff_kind"
@@ -233,18 +233,13 @@ path_prefix = "soothfast-site/src"
 
 [[case]]
 query = "reuse an earlier measurement keyed by cpu model and compiler flags"
-expect = ["cargo-soothfast/src/runcache.rs:36"]
+expect = ["cargo-soothfast/src/runcache.rs:191"]
 path_prefix = "cargo-soothfast/src"
 
 [[case]]
 query = "command line flag parsing for the bench binary"
-expect = ["soothfast-measure/src/runner.rs:40"]
+expect = ["soothfast-measure/src/runner.rs:47"]
 path_prefix = "soothfast-measure/src"
-
-[[case]]
-query = "public surface listing an agent can read"
-expect = ["soothfast-report/src/llms.rs:29"]
-path_prefix = "soothfast-report/src"
 
 [[case]]
 query = "render the type graph back out as schema definition text"
