@@ -516,6 +516,31 @@ async fn verify_scores_against_the_server_threshold() {
     assert_eq!(bad.supported, Some(false));
 }
 
+#[tokio::test]
+async fn verify_applies_the_threshold_of_the_question_asked() {
+    let http = reqwest::Client::new();
+    let model = spawn_mock_verifier().await;
+    let config: VerifyConfig = toml::from_str(&format!(
+        "base_url = \"{model}\"\nmodel = \"mock\"\nthreshold = 0.9\nholds_threshold = 0.7\n"
+    ))
+    .unwrap();
+    let base = spawn_server_with(None, Some(Verifier::new(config))).await;
+    let ask = async |question: &str| -> VerifyResponse {
+        post_json(
+            &http,
+            &base,
+            "/v1/memories/verify",
+            serde_json::json!({ "claim": "c", "evidence": "SOLID", "question": question }),
+        )
+        .await
+        .json()
+        .await
+        .unwrap()
+    };
+    assert_eq!(ask("grounded").await.supported, Some(false));
+    assert_eq!(ask("holds").await.supported, Some(true));
+}
+
 async fn post_json(
     http: &reqwest::Client,
     base: &str,

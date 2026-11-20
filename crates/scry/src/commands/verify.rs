@@ -2,14 +2,14 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use scry_core::config::Config;
+use scry_core::verify::Question;
 use scry_server::api::{VerifyRequest, VerifyResponse};
 use serde::Deserialize;
 
 use super::take_rest;
 use crate::client::ApiClient;
 
-const USAGE: &str =
-    "usage: scry memory verify [--evidence \"text\"] [--] \"claim\" | --eval <pairs.jsonl>";
+const USAGE: &str = "usage: scry memory verify [--question grounded|holds|contradiction] [--evidence \"text\"] [--] \"claim\" | --eval <pairs.jsonl>";
 
 #[derive(Deserialize)]
 struct Pair {
@@ -25,31 +25,66 @@ struct Scored {
     millis: f64,
 }
 
-fn parse_args(args: &[String]) -> Result<(Option<String>, Option<String>, Option<String>)> {
-    let (mut claim, mut evidence, mut eval) = (None, None, None);
+struct Args {
+    claim: Option<String>,
+    evidence: Option<String>,
+    eval: Option<String>,
+    question: Question,
+}
+
+fn parse_question(name: Option<&String>) -> Result<Question> {
+    match name.map(String::as_str) {
+        Some("grounded") => Ok(Question::Grounded),
+        Some("holds") => Ok(Question::Holds),
+        Some("contradiction") => Ok(Question::Contradiction),
+        _ => bail!(USAGE),
+    }
+}
+
+fn parse_args(args: &[String]) -> Result<Args> {
+    let mut parsed = Args {
+        claim: None,
+        evidence: None,
+        eval: None,
+        question: Question::default(),
+    };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
-            "--evidence" => evidence = it.next().cloned(),
-            "--eval" => eval = it.next().cloned(),
-            "--" => claim = take_rest(claim, it.by_ref(), USAGE)?,
-            text if !text.starts_with('-') && claim.is_none() => claim = Some(text.to_string()),
+            "--evidence" => parsed.evidence = it.next().cloned(),
+            "--eval" => parsed.eval = it.next().cloned(),
+            "--question" => parsed.question = parse_question(it.next())?,
+            "--" => parsed.claim = take_rest(parsed.claim, it.by_ref(), USAGE)?,
+            text if !text.starts_with('-') && parsed.claim.is_none() => {
+                parsed.claim = Some(text.to_string())
+            }
             _ => {}
         }
     }
-    Ok((claim, evidence, eval))
+    Ok(parsed)
 }
 
 pub async fn run(args: &[String]) -> Result<()> {
-    let (claim, evidence, eval) = parse_args(args)?;
+    let Args {
+        claim,
+        evidence,
+        eval,
+        question,
+    } = parse_args(args)?;
     let client = ApiClient::new(&Config::load(None)?.client);
     if let Some(path) = eval {
-        return calibrate(&client, &path).await;
+        return calibrate(&client, &path, question).await;
     }
     let (Some(claim), Some(evidence)) = (claim, evidence) else {
         bail!(USAGE);
     };
-    let response = client.verify(&VerifyRequest { claim, evidence }).await?;
+    let response = client
+        .verify(&VerifyRequest {
+            claim,
+            evidence,
+            question,
+        })
+        .await?;
     match (response.score, response.supported) {
         (Some(score), Some(supported)) => {
             let verdict = if supported {
@@ -64,7 +99,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-async fn calibrate(client: &ApiClient, path: &str) -> Result<()> {
+async fn calibrate(client: &ApiClient, path: &str, question: Question) -> Result<()> {
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {path}"))?;
     let mut scored = Vec::new();
     let mut errors = Vec::new();
@@ -75,6 +110,7 @@ async fn calibrate(client: &ApiClient, path: &str) -> Result<()> {
             .verify(&VerifyRequest {
                 claim: pair.claim,
                 evidence: pair.evidence,
+                question,
             })
             .await;
         let millis = started.elapsed().as_secs_f64() * 1000.0;
@@ -241,10 +277,25 @@ mod tests {
         let args: Vec<String> = ["--evidence", "ev", "--", "uses", "--flag", "-x"]
             .map(String::from)
             .to_vec();
-        let (claim, evidence, eval) = parse_args(&args).unwrap();
-        assert_eq!(claim.as_deref(), Some("uses --flag -x"));
-        assert_eq!(evidence.as_deref(), Some("ev"));
-        assert_eq!(eval, None);
+        let parsed = parse_args(&args).unwrap();
+        assert_eq!(parsed.claim.as_deref(), Some("uses --flag -x"));
+        assert_eq!(parsed.evidence.as_deref(), Some("ev"));
+        assert_eq!(parsed.eval, None);
+        assert_eq!(parsed.question, Question::Grounded);
+    }
+
+    #[test]
+    fn question_flag_selects_the_question() {
+        let args = |name: &str| ["--question", name, "claim"].map(String::from).to_vec();
+        assert_eq!(
+            parse_args(&args("holds")).unwrap().question,
+            Question::Holds
+        );
+        assert_eq!(
+            parse_args(&args("contradiction")).unwrap().question,
+            Question::Contradiction
+        );
+        assert!(parse_args(&args("support")).is_err());
     }
 
     #[test]

@@ -10,6 +10,7 @@ use scry_core::memory::{
 use scry_core::memory_gc;
 use scry_core::reverify;
 use scry_core::store::Scope;
+use scry_core::verify::Question;
 
 use crate::AppState;
 use crate::api::{
@@ -183,11 +184,13 @@ pub async fn verify(
             supported: None,
         }));
     };
-    let score = verifier.score(&request.claim, &request.evidence).await?;
+    let score = verifier
+        .ask(request.question, &request.claim, &request.evidence)
+        .await?;
     Ok(Json(VerifyResponse {
         configured: true,
         score: Some(score),
-        supported: Some(score >= verifier.threshold()),
+        supported: Some(score >= verifier.threshold(request.question)),
     }))
 }
 
@@ -264,8 +267,8 @@ pub async fn reverify(
     let scored = reverify::score(
         verifier,
         prepared.candidates,
-        verifier.threshold(),
-        verifier.contradiction_threshold(),
+        verifier.threshold(Question::Holds),
+        verifier.threshold(Question::Contradiction),
     )
     .await;
     let report = state
