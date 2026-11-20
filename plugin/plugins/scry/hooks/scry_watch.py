@@ -55,11 +55,11 @@ BRIEF_HEADER = (
 )
 
 
-def context(text: str, event: str = "SessionStart") -> str:
+def context(text: str) -> str:
     return json.dumps(
         {
             "hookSpecificOutput": {
-                "hookEventName": event,
+                "hookEventName": "SessionStart",
                 "additionalContext": text,
             }
         }
@@ -162,11 +162,6 @@ if __name__ == "__main__":
     payload = read_hook_input() or {}
     cwd = payload.get("cwd") or os.getcwd()
     if not server_reachable():
-        sys.exit(0)
-    # Subagents share the parent's watch and work lists; they only need search.
-    if payload.get("hook_event_name") == "SubagentStart":
-        note = GLOBAL_NOTE if at_or_above_home(cwd) else SEARCH_MANDATE
-        print(context(note, "SubagentStart"))
         sys.exit(0)
     if gc_due():
         spawn_gc(cwd)

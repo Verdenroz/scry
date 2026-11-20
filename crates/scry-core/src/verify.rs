@@ -1,41 +1,70 @@
-//! Claim verification: P(evidence supports claim) from a configurable model.
+//! Claim verification: P(yes) to a question about a claim and its evidence,
+//! from a configurable model.
 
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{VerifyApi, VerifyConfig};
 use crate::{Error, Result};
 
-const DEFAULT_PROMPT: &str = "You check whether evidence supports a claim.
+/// What the verifier is asked about a claim and its evidence.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Question {
+    /// Does the evidence bear out the claim's main finding. Gates capture.
+    #[default]
+    Grounded,
+    /// Does the current code still contain what a note says about it.
+    Holds,
+    /// Does the evidence show the claim is no longer true.
+    Contradiction,
+}
 
-Evidence:
-<<<
-{evidence}
->>>
+impl Question {
+    fn intro(self) -> &'static str {
+        match self {
+            Question::Grounded => "You check whether evidence grounds a claim.",
+            Question::Holds => {
+                "You check whether a note about a codebase still matches the current code."
+            }
+            Question::Contradiction => "You check whether evidence contradicts a claim.",
+        }
+    }
 
-Claim: {claim}
+    fn labels(self) -> (&'static str, &'static str) {
+        match self {
+            Question::Holds => ("Current code", "Note"),
+            _ => ("Evidence", "Claim"),
+        }
+    }
 
-Does the evidence, on its own, fully support every part of the claim? Answer no if the claim is only partly supported, needs facts not shown in the evidence, or is contradicted. Answer with exactly one word: yes or no.";
+    fn instructions(self) -> &'static str {
+        match self {
+            Question::Grounded => {
+                "Does the evidence directly show the main finding of the claim? Answer yes if the evidence is an observation of the thing the claim is about and bears out its main point, even if the claim adds detail or explanation the evidence does not show. Answer no if the evidence is about something else, shows nothing that bears on the main point, or conflicts with the claim."
+            }
+            Question::Holds => {
+                "A note can mix statements about the code with history, measurements and advice that code cannot show; judge only what the note says about the code. Find each function, constant, setting, hook or behaviour the note says the code has. Answer yes only if every one of them is visible in the code shown and nothing there conflicts with the note. Answer no if any of them is missing from the code shown, even when related code is still there, or if the code conflicts with the note."
+            }
+            Question::Contradiction => {
+                "Does the evidence show that the claim is no longer true? Answer yes only if the evidence directly conflicts with the claim. Answer no if the claim is merely not shown, not mentioned, or cannot be judged from the evidence."
+            }
+        }
+    }
 
-const SYSTEMONE_QUESTION: &str = "Does the evidence, on its own, fully support every part of the claim? Answer no if the claim is only partly supported, needs facts not shown in the evidence, or is contradicted.";
-
-const CONTRADICTION_PROMPT: &str = "You check whether evidence contradicts a claim.
-
-Evidence:
-<<<
-{evidence}
->>>
-
-Claim: {claim}
-
-Does the evidence show that the claim is no longer true? Answer yes only if the evidence directly conflicts with the claim. Answer no if the claim is merely not shown, not mentioned, or cannot be judged from the evidence. Answer with exactly one word: yes or no.";
-
-const CONTRADICTION_QUESTION: &str = "Does the evidence show that the claim is no longer true? Answer yes only if the evidence directly conflicts with the claim. Answer no if the claim is merely not shown, not mentioned, or cannot be judged from the evidence.";
+    fn prompt(self) -> String {
+        let (evidence, claim) = self.labels();
+        format!(
+            "{}\n\n{evidence}:\n<<<\n{{evidence}}\n>>>\n\n{claim}: {{claim}}\n\n{} Answer with exactly one word: yes or no.",
+            self.intro(),
+            self.instructions()
+        )
+    }
+}
 
 #[async_trait]
 pub trait ClaimScorer: Send + Sync {
-    async fn score(&self, claim: &str, evidence: &str) -> Result<f64>;
-    async fn contradiction(&self, claim: &str, evidence: &str) -> Result<f64>;
+    async fn ask(&self, question: Question, claim: &str, evidence: &str) -> Result<f64>;
 }
 
 pub struct Verifier {
@@ -102,33 +131,27 @@ impl Verifier {
         }
     }
 
-    pub fn threshold(&self) -> f64 {
-        self.config.threshold
+    pub fn threshold(&self, question: Question) -> f64 {
+        match question {
+            Question::Grounded => self.config.threshold,
+            Question::Holds => self.config.holds_threshold,
+            Question::Contradiction => self.config.contradiction_threshold,
+        }
     }
 
-    pub fn contradiction_threshold(&self) -> f64 {
-        self.config.contradiction_threshold
-    }
-
-    pub async fn score(&self, claim: &str, evidence: &str) -> Result<f64> {
-        let prompt = self.config.prompt.as_deref().unwrap_or(DEFAULT_PROMPT);
-        self.ask(prompt, SYSTEMONE_QUESTION, claim, evidence).await
-    }
-
-    pub async fn contradiction(&self, claim: &str, evidence: &str) -> Result<f64> {
-        self.ask(
-            CONTRADICTION_PROMPT,
-            CONTRADICTION_QUESTION,
-            claim,
-            evidence,
-        )
-        .await
-    }
-
-    async fn ask(&self, prompt: &str, question: &str, claim: &str, evidence: &str) -> Result<f64> {
+    pub async fn ask(&self, question: Question, claim: &str, evidence: &str) -> Result<f64> {
         match self.config.api {
-            VerifyApi::Chat => self.score_chat(prompt, claim, evidence).await,
-            VerifyApi::SystemOne => self.score_systemone(question, claim, evidence).await,
+            VerifyApi::Chat => {
+                let prompt = match (&self.config.prompt, question) {
+                    (Some(prompt), Question::Grounded) => prompt.clone(),
+                    _ => question.prompt(),
+                };
+                self.score_chat(&prompt, claim, evidence).await
+            }
+            VerifyApi::SystemOne => {
+                self.score_systemone(question.instructions(), claim, evidence)
+                    .await
+            }
         }
     }
 
@@ -186,12 +209,8 @@ impl Verifier {
 
 #[async_trait]
 impl ClaimScorer for Verifier {
-    async fn score(&self, claim: &str, evidence: &str) -> Result<f64> {
-        Verifier::score(self, claim, evidence).await
-    }
-
-    async fn contradiction(&self, claim: &str, evidence: &str) -> Result<f64> {
-        Verifier::contradiction(self, claim, evidence).await
+    async fn ask(&self, question: Question, claim: &str, evidence: &str) -> Result<f64> {
+        Verifier::ask(self, question, claim, evidence).await
     }
 }
 
@@ -286,9 +305,20 @@ mod tests {
     }
 
     #[test]
-    fn prompt_override_replaces_the_default() {
-        let default = render_prompt(DEFAULT_PROMPT, "C1", "E1");
-        assert!(default.contains("Claim: C1") && default.contains("E1"));
+    fn each_question_renders_its_own_prompt() {
+        let grounded = render_prompt(&Question::Grounded.prompt(), "C1", "E1");
+        assert!(grounded.contains("Evidence:\n<<<\nE1\n>>>\n\nClaim: C1\n\n"));
+        assert!(grounded.ends_with("Answer with exactly one word: yes or no."));
+        let holds = render_prompt(&Question::Holds.prompt(), "C1", "E1");
+        assert!(holds.contains("Current code:\n<<<\nE1\n>>>\n\nNote: C1\n\n"));
+        assert_ne!(
+            Question::Contradiction.instructions(),
+            Question::Grounded.instructions()
+        );
+    }
+
+    #[test]
+    fn prompt_override_fills_both_placeholders() {
         let custom = "{evidence} => {claim}?";
         assert_eq!(render_prompt(custom, "C1", "E1"), "E1 => C1?");
         assert_eq!(

@@ -142,15 +142,22 @@ pub struct VerifyConfig {
     pub api_key: String,
     #[serde(default = "default_verify_threshold")]
     pub threshold: f64,
+    /// Minimum P(the code still holds the note) for reverify to reaffirm a stale memory.
+    #[serde(default = "default_holds_threshold")]
+    pub holds_threshold: f64,
     /// Minimum P(contradicted) for reverify to mark a stale memory contradicted.
     #[serde(default = "default_contradiction_threshold")]
     pub contradiction_threshold: f64,
-    /// Chat prompt override for the support question; must contain `{claim}` and `{evidence}`.
+    /// Chat prompt override for the grounding question; must contain `{claim}` and `{evidence}`.
     #[serde(default)]
     pub prompt: Option<String>,
 }
 
 fn default_verify_threshold() -> f64 {
+    0.5
+}
+
+fn default_holds_threshold() -> f64 {
     0.5
 }
 
@@ -499,6 +506,7 @@ mod tests {
         let verify = config.verify.unwrap();
         assert_eq!(verify.api, VerifyApi::Chat);
         assert_eq!(verify.threshold, 0.5);
+        assert_eq!(verify.holds_threshold, 0.5);
         assert_eq!(verify.contradiction_threshold, 0.8);
         assert!(Config::default().verify.is_none());
     }
@@ -511,6 +519,7 @@ mod tests {
             model: String::new(),
             api_key: String::new(),
             threshold: 0.5,
+            holds_threshold: 0.5,
             contradiction_threshold: 0.8,
             prompt: Some(prompt.to_string()),
         };

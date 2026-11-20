@@ -164,18 +164,22 @@ that the memory still holds is the caller's job.
 scry memory reverify [--dry-run] [--limit 20]
 ```
 
-`reverify` scores stale, anchored, non-superseded memories against the
-current code with the `[verify]` model, oldest first, one at a time. The
+`reverify` puts stale, anchored, non-superseded memories beside the
+current code and asks the `[verify]` model about them, oldest first, one at
+a time. The
 evidence is the anchored file's indexed chunks, each prefixed
 `relpath:start-end`, capped at 6000 characters: the chunks overlapping the
 anchor's line range, or for an anchor without one the 3 chunks nearest
 the memory's embedding. There are three outcomes:
 
-- Supported: the support score is at or above the `[verify]` `threshold`.
-  The memory is reaffirmed, re-hashing its anchors and appending
+- Holds: the `holds` question scores at or above `holds_threshold`. It asks
+  whether every function, constant, setting or behaviour the memory says
+  the code has is still visible in the code shown, ignoring the history,
+  measurements and advice in the memory that code cannot show. The memory
+  is reaffirmed, re-hashing its anchors and appending
   `reverified against <relpath>:<a-b> (p=0.93)` to its evidence.
-- Contradicted: not supported, and a second question, whether the evidence
-  shows the claim is no longer true, scores at or above
+- Contradicted: it does not hold, and a second question, whether the
+  evidence shows the claim is no longer true, scores at or above
   `contradiction_threshold`. The memory stays stale and is stamped for gc
   to archive.
 - Inconclusive: neither. The memory stays stale and is not rescored until
@@ -240,10 +244,18 @@ gc_episode_floor = 0.1
 
 An optional `[verify]` section adds a claim verifier: `scry memory verify
 "claim" --evidence "text"` prints `supported 0.83`, `unsupported 0.04`, or
-`not configured`. The score is P(evidence supports claim); `supported` means
-the score reaches `threshold`, which lives only in the server config. Without
-`[verify]` nothing is verified and nothing falls back to `[chat]`. A model
-or server error exits nonzero, as does a model that answers neither yes nor
+`not configured`. The score is P(yes) to one of three questions, chosen with
+`--question`, and `supported` means the score reaches that question's
+threshold, which lives only in the server config:
+
+| Question | Asks | Threshold | Used by |
+|---|---|---|---|
+| `grounded` (default) | does the evidence bear out the claim's main finding, even if the claim adds detail the evidence does not show | `threshold` | capture |
+| `holds` | is everything the note says the code has still visible in the code shown | `holds_threshold` | `reverify` |
+| `contradiction` | does the evidence show the claim is no longer true | `contradiction_threshold` | `reverify` |
+
+Without `[verify]` nothing is verified and nothing falls back to `[chat]`.
+A model or server error exits nonzero, as does a model that answers neither yes nor
 no, so callers should treat failure as unsupported.
 
 | Key | Default | Meaning |
@@ -252,8 +264,10 @@ no, so callers should treat failure as unsupported.
 | `base_url` | required | endpoint root ending in `/v1` for both modes |
 | `model` | required | model name sent in the request |
 | `api_key` | `ollama` | bearer token; `env:VAR` reads an environment variable |
-| `threshold` | `0.5` | cut for `supported`; not tuned to any model |
-| `prompt` | built in | chat prompt override; must contain `{claim}` and `{evidence}` |
+| `threshold` | `0.5` | cut for the `grounded` question; not tuned to any model |
+| `holds_threshold` | `0.5` | cut for the `holds` question |
+| `contradiction_threshold` | `0.8` | cut for the `contradiction` question |
+| `prompt` | built in | chat prompt override for the `grounded` question; must contain `{claim}` and `{evidence}` |
 
 `chat` asks an OpenAI-compatible model a yes/no question at
 `{base_url}/chat/completions` with one output token and logprobs, and scores
@@ -267,7 +281,8 @@ answer as the score.
 [verify]
 base_url = "http://localhost:12434/v1"
 model = "qwen3.6:35b-a3b"
-threshold = 0.2
+threshold = 0.7
+holds_threshold = 0.5
 contradiction_threshold = 0.8
 ```
 
@@ -278,37 +293,45 @@ base_url = "http://localhost:8017/v1"
 model = "jevos-v4"
 ```
 
-`contradiction_threshold` (default 0.8) is the minimum P(yes) to the
-question "does the evidence show the claim is no longer true" for
-`reverify` to mark a memory contradicted. The question has its own prompt;
-`prompt` overrides only the support question.
-
 ### Calibration
 
-`scry memory verify --eval eval/verify-pairs.jsonl` scores labelled rows
-(`{"claim", "evidence", "label": 1|0}`) through the configured verifier and
-prints the AUROC, median latency, false accepts and false rejects at the
-configured threshold, and the score above which no unsupported claim was
-accepted. Pick a threshold from your own model and data.
+`scry memory verify --eval pairs.jsonl [--question Q]` scores labelled rows
+(`{"claim", "evidence", "label": 1|0}`, with 1 where the answer should be
+yes) through the configured verifier and prints the AUROC, median latency,
+false accepts and false rejects at the configured threshold, and the score
+above which no label-0 row was accepted. Pick thresholds from your own
+model and data.
 
-`eval/verify-pairs.jsonl` holds 28 pairs from real sessions (14 supported).
-On it, the llama-swap `qwen3.6:35b-a3b` example above measured AUROC 0.98,
-with zero false accepts and two of 14 good claims rejected at 0.2 (six
-rejected at 0.5). That is one measurement on a small set, not a default.
-The same set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77
-depending on phrasing, so calibrate before trusting any verifier.
+`eval/verify-pairs.jsonl` holds 28 pairs from real sessions (14 supported)
+for the `grounded` question. On it, the llama-swap `qwen3.6:35b-a3b`
+example above measured AUROC 0.95, with zero false accepts and five of 14
+good claims rejected at 0.7; the highest unsupported claim scored 0.66. On
+25 claims captured from live sessions, each against the tool result it
+quoted, 0.7 accepted nine, all of them borne out by their evidence. A
+question that asks for full support of every part of the claim measured
+AUROC 0.98 on the 28 pairs and accepted two of those 25: a captured memory
+is a synthesis of a session, and one tool result rarely proves all of it.
 
-`eval/contradiction-pairs.jsonl` holds the contradiction question's
-labelled rows in the same shape, with `label` 1 for a claim the evidence
-contradicts (a hand-edited copy of a real memory) and 0 for a real stale
-memory presumed true. `scry memory verify --eval` cannot score it, since
-it asks the support question. Scored against the llama-swap
-`qwen3.6:35b-a3b` example above, on a larger private set of 91 presumed-true
-pairs and 27 edited ones, no presumed-true pair scored 0.8 or higher
-(highest 0.76), 2 scored 0.5 or higher, and no edited pair scored 0.8 or
-higher (8 of 27 reached 0.5). The default therefore archives nothing the
-model is not sure of, and catches few contradictions; a model that
-separates the two sets better can use a lower value.
+`eval/contradiction-pairs.jsonl` holds 28 rows for the `contradiction`
+question, with `label` 1 for a claim the evidence contradicts (a
+hand-edited copy of a real memory) and 0 for a real stale memory presumed
+true. With `--question contradiction` the same model measured AUROC 0.93
+with nothing reaching 0.8, so the default archives nothing the model is not
+sure of and catches few contradictions; a model that separates the two
+sets better can use a lower value.
+
+The `holds` question was measured on 40 live stale memories against their
+anchored chunks. At 0.5 it reaffirmed 15, and none of the same 40 paired
+with another memory's chunks. On the contradiction rows it passed 14 of the
+22 presumed-true memories and none of the six edited ones (highest 0.26).
+A looser wording that accepted a note whenever the code it describes was
+partly visible reaffirmed a memory about a hook that had just been deleted,
+because related constants were still in view; the question therefore asks
+for every named thing to be present.
+
+That is one model on small sets, not a default. The same 28 pairs scored
+`jevos-v4` through `systemone` at AUROC 0.45 to 0.77 depending on phrasing,
+so calibrate before trusting any verifier.
 
 ## Automatic capture
 
@@ -358,8 +381,9 @@ transcript the model saw.
 
 A true quote does not prove the claim follows from it. Every memory that
 survives the quote check as a `lesson`, `fact`, `decision`, or
-`convention` is then judged by `scry memory verify`, which compares the
-memory content against the full cited entry. `unsupported` downgrades it
+`convention` is then judged by `scry memory verify`, which asks whether
+the full cited entry bears out the memory's main finding. `unsupported`
+downgrades it
 to an `episode` (anchors and supersession dropped). If verification is not
 configured, the quote-only result stands and the pass log records
 `"verify": "not configured"`. A failed or timed-out verify call fails

@@ -1,5 +1,6 @@
 //! Wire types shared by the server routes and the CLI client.
 
+use scry_core::verify::Question;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -218,6 +219,8 @@ pub struct SupersedeResponse {
 pub struct VerifyRequest {
     pub claim: String,
     pub evidence: String,
+    #[serde(default)]
+    pub question: Question,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

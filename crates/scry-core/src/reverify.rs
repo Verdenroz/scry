@@ -1,13 +1,14 @@
 //! Re-verification of stale memories: the anchored files' current chunks are
-//! scored as evidence for the memory's claim. Support makes it live again;
-//! contradiction marks it for gc; anything else leaves it stale.
+//! put to the verifier beside the memory. Code that still holds what the
+//! memory says about it makes it live again; contradiction marks it for gc;
+//! anything else leaves it stale.
 
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
 use crate::memory::reaffirm;
 use crate::store::{ChunkRow, MemoryAnchor, MemoryRow, Store};
-use crate::verify::ClaimScorer;
+use crate::verify::{ClaimScorer, Question};
 
 const EVIDENCE_CHARS: usize = 6000;
 const UNRANGED_CHUNKS: usize = 3;
@@ -32,7 +33,7 @@ pub struct Candidate {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Verdict {
-    Supported(f64),
+    Holds(f64),
     Contradicted,
     Inconclusive,
 }
@@ -118,17 +119,17 @@ fn render(chunks: &[ChunkRow]) -> (String, String) {
 }
 
 /// Scores candidates one at a time; concurrent requests perturb a local
-/// model server. Contradiction is only asked of candidates the evidence does
-/// not support. A scorer error is kept beside its candidate.
+/// model server. Contradiction is only asked of candidates the code no
+/// longer holds. A scorer error is kept beside its candidate.
 pub async fn score(
     scorer: &dyn ClaimScorer,
     candidates: Vec<Candidate>,
-    threshold: f64,
+    holds_threshold: f64,
     contradiction_threshold: f64,
 ) -> Vec<(Candidate, Result<Verdict>)> {
     let mut scored = Vec::with_capacity(candidates.len());
     for candidate in candidates {
-        let result = verdict(scorer, &candidate, threshold, contradiction_threshold).await;
+        let result = verdict(scorer, &candidate, holds_threshold, contradiction_threshold).await;
         if let Err(error) = &result {
             tracing::warn!(id = candidate.id, %error, "reverify scoring failed");
         }
@@ -140,15 +141,21 @@ pub async fn score(
 async fn verdict(
     scorer: &dyn ClaimScorer,
     candidate: &Candidate,
-    threshold: f64,
+    holds_threshold: f64,
     contradiction_threshold: f64,
 ) -> Result<Verdict> {
-    let support = scorer.score(&candidate.claim, &candidate.evidence).await?;
-    if support >= threshold {
-        return Ok(Verdict::Supported(support));
+    let holds = scorer
+        .ask(Question::Holds, &candidate.claim, &candidate.evidence)
+        .await?;
+    if holds >= holds_threshold {
+        return Ok(Verdict::Holds(holds));
     }
     let contradiction = scorer
-        .contradiction(&candidate.claim, &candidate.evidence)
+        .ask(
+            Question::Contradiction,
+            &candidate.claim,
+            &candidate.evidence,
+        )
         .await?;
     Ok(if contradiction >= contradiction_threshold {
         Verdict::Contradicted
@@ -157,7 +164,7 @@ async fn verdict(
     })
 }
 
-/// Reaffirms supported memories, stamps contradicted and inconclusive ones.
+/// Reaffirms memories the code still holds, stamps contradicted and inconclusive ones.
 /// With `dry_run` it only counts.
 pub fn commit(
     store: &mut Store,
@@ -173,7 +180,7 @@ pub fn commit(
         report.checked += 1;
         match result {
             Err(_) => report.errors += 1,
-            Ok(Verdict::Supported(p)) => {
+            Ok(Verdict::Holds(p)) => {
                 if !dry_run {
                     let evidence = format!("reverified against {} (p={p:.2})", candidate.cited);
                     reaffirm(store, candidate.id, &evidence, &[])?;
@@ -216,17 +223,16 @@ mod tests {
         S: Fn(&str) -> Result<f64> + Send + Sync,
         C: Fn(&str) -> Result<f64> + Send + Sync,
     {
-        async fn score(&self, claim: &str, _evidence: &str) -> Result<f64> {
-            (self.0)(claim)
-        }
-
-        async fn contradiction(&self, claim: &str, _evidence: &str) -> Result<f64> {
-            (self.1)(claim)
+        async fn ask(&self, question: Question, claim: &str, _evidence: &str) -> Result<f64> {
+            match question {
+                Question::Contradiction => (self.1)(claim),
+                _ => (self.0)(claim),
+            }
         }
     }
 
-    fn fixed(support: f64, contradiction: f64) -> impl ClaimScorer {
-        Stub(move |_: &str| Ok(support), move |_: &str| Ok(contradiction))
+    fn fixed(holds: f64, contradiction: f64) -> impl ClaimScorer {
+        Stub(move |_: &str| Ok(holds), move |_: &str| Ok(contradiction))
     }
 
     async fn run(store: &mut Store, scorer: &dyn ClaimScorer, dry_run: bool) -> ReverifyReport {
@@ -392,7 +398,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn contradiction_is_only_asked_when_support_fails() {
+    async fn contradiction_is_only_asked_when_the_code_no_longer_holds() {
         let (mut store, repo) = store_with_file();
         stale_memory(&mut store, repo, "claim", "a.rs", None);
         let scorer = Stub(

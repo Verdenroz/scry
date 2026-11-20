@@ -39,6 +39,7 @@ USAGE:
   scry memory restore <id>               bring an archived memory back
   scry memory verify \"claim\" --evidence T  score a claim against evidence
   scry memory verify --eval <pairs.jsonl>    calibrate the verifier on labelled pairs
+                                             (--question grounded|holds|contradiction; default grounded)
   scry work [--all]                      open work lists here with open items and state
   scry work show <list> [--all]          one list; --all adds finished items
   scry work add <list> \"task\" [--status S] [--note T]
