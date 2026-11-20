@@ -21,7 +21,9 @@ USAGE:
   scry eval <cases.toml> [--runs N] [--limit N]  score retrieval against a golden set
   scry remember \"insight\" [--kind K] [--pain N] [--anchor path[:a-b]]
                                          [--source agent|capture] [--evidence T]
-  scry recall \"query\" [-m N] [--no-touch]  recall memories about this codebase
+  scry recall \"query\" [-m N] [--min-score S] [--no-touch]
+                                         recall memories about this codebase scoring
+                                         at least S (default 0.42)
                                          (`--` ends options for remember and recall)
   scry memory <helpful|noise> <id>       reinforce or demote a memory
   scry memory brief [-m N] [--stale-days D]  top memories + recently stale ones

@@ -75,7 +75,7 @@ async fn remember_recall_staleness_and_feedback() {
         .unwrap()
         .pop()
         .unwrap();
-    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 0.0, true).unwrap();
     assert_eq!(hits[0].id, id);
     assert!(!hits[0].stale);
     let live_score = hits[0].score;
@@ -95,7 +95,7 @@ async fn remember_recall_staleness_and_feedback() {
     .await
     .unwrap();
 
-    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 0.0, true).unwrap();
     assert_eq!(hits[0].id, id);
     assert!(hits[0].stale);
     assert!(hits[0].score < live_score);
@@ -105,7 +105,7 @@ async fn remember_recall_staleness_and_feedback() {
             .memory_feedback(id, true, Scope::Repo(repo_id))
             .unwrap()
     );
-    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
+    let hits = recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 0.0, true).unwrap();
     assert!(hits[0].score > 0.0);
 
     let (total, stale) = store.memory_counts().unwrap();
@@ -251,7 +251,7 @@ async fn brief_lists_recently_stale_and_rejects_unknown_source() {
 }
 
 #[tokio::test]
-async fn untouched_recall_leaves_access_count_alone() {
+async fn untouched_or_floored_recall_leaves_access_count_alone() {
     let mut store = Store::open_in_memory("hash-test", 256).unwrap();
     let embedder = HashEmbedder { dim: 256 };
     let repo_id = store.upsert_repo(REPO_KEY).unwrap();
@@ -269,12 +269,15 @@ async fn untouched_recall_leaves_access_count_alone() {
         .pop()
         .unwrap();
 
-    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, false).unwrap();
+    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 0.0, false).unwrap();
+    let floored =
+        recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 2.0, true).unwrap();
+    assert!(floored.is_empty());
     assert_eq!(
         store.live_memories(Scope::Repo(repo_id)).unwrap()[0].access_count,
         0
     );
-    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, true).unwrap();
+    recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 5, 0.0, true).unwrap();
     assert_eq!(
         store.live_memories(Scope::Repo(repo_id)).unwrap()[0].access_count,
         1
@@ -362,7 +365,7 @@ async fn recall_keeps_all_globals_and_honors_noise() {
         .unwrap();
 
     let recall =
-        || recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 10, false).unwrap();
+        || recall_with_vector(&store, Scope::Repo(repo_id), &query_vec, 10, 0.0, false).unwrap();
     let count_globals = |hits: &[scry_core::memory::MemoryHit]| {
         hits.iter().filter(|h| globals.contains(&h.id)).count()
     };

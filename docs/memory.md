@@ -45,7 +45,12 @@ and learned utility (helpful retrievals over total retrievals) as
 tie-breakers and stale memories at half weight. Recency plays no part in
 a query recall: on 200 judged prompts, every recency or salience-heavy
 blend injected more irrelevant memories than similarity alone. The
-prompt hook injects up to 3 memories scoring at least 0.50. Recall ranks
+prompt hook injects up to 3 memories scoring at least 0.50, and
+`scry recall` drops anything under 0.42 (`--min-score S` moves the floor,
+`--min-score 0` lists the nearest regardless). When nothing clears the
+floor it prints a note on stderr and nothing on stdout, so an empty result
+means no memory covers the topic. Memories under the floor are not counted
+as retrievals. Recall ranks
 scope and global memories together with no cap on globals; only the
 brief caps them.
 

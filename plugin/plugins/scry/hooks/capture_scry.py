@@ -16,7 +16,7 @@ def run(args, cwd, timeout=60):
 
 
 def recall(query: str, cwd: str) -> dict:
-    result = run(["recall", "-m", "8", "--no-touch", "--", query], cwd)
+    result = run(["recall", "-m", "8", "--min-score", "0", "--no-touch", "--", query], cwd)
     return capture_transcript.parse_memories(result.stdout)
 
 

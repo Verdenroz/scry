@@ -7,6 +7,10 @@ use super::{memory_scope_key, repo_context, take_rest};
 
 const REMEMBER_USAGE: &str = "usage: scry remember \"content\" [--kind lesson|decision|convention|skill|fact|episode] [--pain 0-10] [--cost 0-10] [--anchor path[:start-end]] [--source agent|capture] [--evidence \"text\"] [--global]";
 
+/// Off-topic queries top out near 0.41 against a few hundred memories and
+/// on-topic ones start near 0.44, so matches below this are the noise floor.
+const RECALL_MIN_SCORE: f64 = 0.42;
+
 const RECALL_USAGE: &str = "usage: scry recall \"query\" [-m N] [--min-score S] [--no-touch]";
 
 pub async fn remember(args: &[String]) -> Result<()> {
@@ -89,7 +93,7 @@ pub(super) fn parse_anchor(spec: &str) -> AnchorDto {
 pub async fn recall(args: &[String]) -> Result<()> {
     let mut query: Option<String> = None;
     let mut limit = 5;
-    let mut min_score = 0.0f64;
+    let mut min_score = RECALL_MIN_SCORE;
     let mut touch = true;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -116,9 +120,15 @@ pub async fn recall(args: &[String]) -> Result<()> {
             query,
             limit,
             touch,
+            min_score,
         })
         .await?;
-    for memory in response.memories.iter().filter(|m| m.score >= min_score) {
+    if response.memories.is_empty() {
+        eprintln!(
+            "no memories scored {min_score:.2} or higher for this query; --min-score 0 lists the nearest anyway"
+        );
+    }
+    for memory in &response.memories {
         let stale = if memory.stale { " (stale)" } else { "" };
         println!(
             "[{} #{}] ({:.2}){} {}",
