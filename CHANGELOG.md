@@ -1,13 +1,34 @@
 # Changelog
 
-## Unreleased (draft vs v0.4.0)
+## 0.5.0 - 2026-11-20
 
 <!-- soothfast:notes -->
-<!-- ### Overview -->
-<!-- What this release means for someone using it. One paragraph. -->
+### Overview
 
-<!-- ### Upgrade notes -->
-<!-- What a consumer has to do. "Nothing" is a useful answer. -->
+Memory-quality release. Stale memories are now re-checked against the
+current code instead of waiting out a timer: `scry memory reverify` asks
+the `[verify]` model whether everything a memory says the code has is
+still there, makes it live again when it is, and marks it for `gc` only
+when the code contradicts it. A memory the model cannot judge stays stale
+and is never archived on age. Capture's verify gate asks whether the
+evidence bears out a claim's main finding, where it used to demand proof
+of every part and passed nothing. `scry recall` ranks by similarity and
+drops memories scoring under 0.42, so an off-topic query returns nothing
+instead of its five nearest misses. Search caches rerank results, which
+takes a repeated query from seconds to about 30 ms, and `--answer` cites
+its sources as `[N]`.
+
+### Upgrade notes
+
+Back up `index.db` before starting the new server. It migrates the
+schema from v6 to v8 on first start, and older binaries refuse the
+migrated file. If you set `[verify] threshold`, recalibrate it with
+`scry memory verify --eval`: it now cuts a different question, and the
+documented `qwen3.6:35b-a3b` example moved from 0.2 to 0.7. The new
+`holds_threshold` defaults to 0.5. Pass `--min-score 0` to `scry recall`
+to list the nearest memories regardless of score. Restart the server,
+then run `claude plugin update scry@scry` to get plugin 0.1.12, which no
+longer injects the search mandate into subagents.
 <!-- /soothfast:notes -->
 
 ### ✨ Features
