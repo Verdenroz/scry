@@ -21,7 +21,7 @@ use scry_core::Result;
 use scry_core::chat::ChatClient;
 use scry_core::config::{Config, HydeMode, IndexConfig, MemoryConfig};
 use scry_core::embed::{Embedder, HttpEmbedder};
-use scry_core::rerank::RerankClient;
+use scry_core::rerank::{RerankClient, RerankResult};
 use scry_core::store::Store;
 use scry_core::verify::Verifier;
 
@@ -40,6 +40,7 @@ pub struct AppState {
     pub rerank: Option<RerankClient>,
     pub verify: Option<Verifier>,
     pub query_cache: QueryCache,
+    pub rerank_cache: QueryCache<u64, Vec<RerankResult>>,
 }
 
 impl AppState {
@@ -65,6 +66,7 @@ impl AppState {
             rerank: config.rerank.clone().map(RerankClient::new),
             verify: config.verify.clone().map(Verifier::new),
             query_cache: QueryCache::new(QUERY_CACHE_ENTRIES),
+            rerank_cache: QueryCache::new(QUERY_CACHE_ENTRIES),
         }
     }
 }

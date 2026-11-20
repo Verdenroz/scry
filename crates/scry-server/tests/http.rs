@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use scry_core::config::Config;
 use scry_core::config::{RerankConfig, VerifyConfig};
@@ -40,6 +41,7 @@ async fn spawn_server_with(rerank: Option<RerankClient>, verify: Option<Verifier
         rerank,
         verify,
         query_cache: QueryCache::new(8),
+        rerank_cache: QueryCache::new(8),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -183,11 +185,14 @@ async fn auth_sync_search_roundtrip() {
 }
 
 /// Scores each document by its position, so the last candidate wins.
-async fn spawn_mock_reranker() -> String {
+async fn spawn_mock_reranker() -> (String, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
     let app = axum::Router::new().route(
         "/v1/rerank",
         axum::routing::post(
-            |axum::Json(body): axum::Json<serde_json::Value>| async move {
+            move |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                counter.fetch_add(1, Ordering::SeqCst);
                 let n = body["documents"].as_array().map_or(0, |d| d.len());
                 let results: Vec<serde_json::Value> = (0..n)
                     .map(|i| serde_json::json!({ "index": i, "relevance_score": i as f64 }))
@@ -199,7 +204,7 @@ async fn spawn_mock_reranker() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/v1", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    base
+    (base, calls)
 }
 
 async fn search(http: &reqwest::Client, base: &str, rerank: bool) -> Vec<String> {
@@ -226,7 +231,7 @@ async fn search(http: &reqwest::Client, base: &str, rerank: bool) -> Vec<String>
 
 #[tokio::test]
 async fn rerank_stage_reorders_and_no_rerank_bypasses_it() {
-    let reranker = spawn_mock_reranker().await;
+    let (reranker, rerank_calls) = spawn_mock_reranker().await;
     let config: RerankConfig = toml::from_str(&format!(
         "base_url = \"{reranker}\"\nmodel = \"mock\"\ntop_n = 2\nweight = 2.0\n"
     ))
@@ -261,6 +266,9 @@ async fn rerank_stage_reorders_and_no_rerank_bypasses_it() {
     assert_eq!(reranked.len(), 2);
     assert_eq!(reranked[0], plain[1]);
     assert_eq!(reranked[1], plain[0]);
+
+    assert_eq!(search(&http, &base, true).await, reranked);
+    assert_eq!(rerank_calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -741,6 +749,17 @@ async fn memory_stale_reaffirm_gc_and_restore() {
     .await
     .unwrap();
     assert_eq!(recalled.memories.len(), 1);
+    let floored: RecallResponse = post_json(
+        &http,
+        &base,
+        "/v1/memories/recall",
+        serde_json::json!({ "repo_key": REPO, "query": "a is special", "min_score": 2.0 }),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    assert!(floored.memories.is_empty());
 }
 
 #[tokio::test]

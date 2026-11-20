@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
+use scry_core::hashing::hash_bytes;
 use scry_core::rerank::fuse;
 use scry_core::search::{SearchHit, SearchOptions, query_vector, search_with_vector};
 
@@ -34,7 +35,7 @@ pub(super) async fn query_vector_cached(
         query,
     )
     .await?;
-    state.query_cache.insert(query, vector.clone());
+    state.query_cache.insert(query.to_string(), vector.clone());
     Ok(vector)
 }
 
@@ -48,6 +49,19 @@ pub(super) fn pool_size(state: &AppState, rerank: bool, limit: usize) -> usize {
         .map_or(limit, |client| limit.max(client.top_n()))
 }
 
+/// One hash over the query and every document in order, so an index edit
+/// that changes any candidate misses the cache.
+fn rerank_key(query: &str, documents: &[String]) -> u64 {
+    let mut input =
+        Vec::with_capacity(query.len() + 1 + documents.iter().map(|d| d.len() + 1).sum::<usize>());
+    input.extend_from_slice(query.as_bytes());
+    for document in documents {
+        input.push(0);
+        input.extend_from_slice(document.as_bytes());
+    }
+    hash_bytes(&input)
+}
+
 pub(super) async fn reranked(
     state: &AppState,
     rerank: bool,
@@ -59,8 +73,15 @@ pub(super) async fn reranked(
         return hits;
     };
     let documents: Vec<String> = hits.iter().map(|h| client.document(h)).collect();
+    let key = rerank_key(query, &documents);
+    if let Some(ranked) = state.rerank_cache.get(&key) {
+        return fuse(hits, &ranked, client.weight(), limit);
+    }
     match tokio::time::timeout(RERANK_BUDGET, client.rerank(query, &documents)).await {
-        Ok(Ok(ranked)) => fuse(hits, &ranked, client.weight(), limit),
+        Ok(Ok(ranked)) => {
+            state.rerank_cache.insert(key, ranked.clone());
+            fuse(hits, &ranked, client.weight(), limit)
+        }
         Ok(Err(error)) => {
             tracing::warn!("rerank failed, returning fused order: {error}");
             truncated(hits, limit)

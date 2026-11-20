@@ -1,46 +1,55 @@
-//! Query vectors keyed by query text. A vector depends only on the
-//! embedder and the HyDE setting, both fixed for a server's lifetime, so
-//! a repeat query skips the chat and embedding round trips.
+//! Bounded caches for the model round trips of a query. A query vector
+//! depends only on the embedder and the HyDE setting, and a rerank only on
+//! the query and the documents scored, all fixed for a server's lifetime,
+//! so a repeat query skips the chat, embedding, and rerank calls.
 
+use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 use std::sync::Mutex;
 
-pub struct QueryCache {
+pub struct QueryCache<K = String, V = Vec<f32>> {
     capacity: usize,
-    inner: Mutex<Entries>,
+    inner: Mutex<Entries<K, V>>,
 }
 
-#[derive(Default)]
-struct Entries {
-    vectors: HashMap<String, Vec<f32>>,
-    order: VecDeque<String>,
+struct Entries<K, V> {
+    values: HashMap<K, V>,
+    order: VecDeque<K>,
 }
 
-impl QueryCache {
+impl<K: Hash + Eq + Clone, V: Clone> QueryCache<K, V> {
     pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
-            inner: Mutex::new(Entries::default()),
+            inner: Mutex::new(Entries {
+                values: HashMap::new(),
+                order: VecDeque::new(),
+            }),
         }
     }
 
-    pub fn get(&self, query: &str) -> Option<Vec<f32>> {
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.inner
             .lock()
             .expect("query cache")
-            .vectors
-            .get(query)
+            .values
+            .get(key)
             .cloned()
     }
 
-    pub fn insert(&self, query: &str, vector: Vec<f32>) {
+    pub fn insert(&self, key: K, value: V) {
         let mut entries = self.inner.lock().expect("query cache");
-        if entries.vectors.insert(query.to_string(), vector).is_none() {
-            entries.order.push_back(query.to_string());
+        if entries.values.insert(key.clone(), value).is_none() {
+            entries.order.push_back(key);
         }
         while entries.order.len() > self.capacity {
             let oldest = entries.order.pop_front().expect("non-empty");
-            entries.vectors.remove(&oldest);
+            entries.values.remove(&oldest);
         }
     }
 }
@@ -51,7 +60,7 @@ mod tests {
 
     #[test]
     fn returns_inserted_vectors_and_evicts_oldest() {
-        let cache = QueryCache::new(2);
+        let cache: QueryCache<&str> = QueryCache::new(2);
         cache.insert("a", vec![1.0]);
         cache.insert("b", vec![2.0]);
         cache.insert("c", vec![3.0]);
@@ -62,7 +71,7 @@ mod tests {
 
     #[test]
     fn reinserting_a_key_does_not_grow_the_order() {
-        let cache = QueryCache::new(2);
+        let cache: QueryCache<&str> = QueryCache::new(2);
         cache.insert("a", vec![1.0]);
         cache.insert("a", vec![1.5]);
         cache.insert("b", vec![2.0]);
