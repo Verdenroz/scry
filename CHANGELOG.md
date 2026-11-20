@@ -17,6 +17,7 @@
 
 ### 🐛 Fixes
 
+- answer: Unwrap grouped source citations (#47)
 - Replace the verifier's support question, drop the subagent mandate (#45)
 - Recall score floor, rerank cache, answer citations (#41)
 - memory: Archive stale memories only on contradiction (#38)
