@@ -17,6 +17,8 @@
 
 ### 🐛 Fixes
 
+- Recall score floor, rerank cache, answer citations (#41)
+- memory: Archive stale memories only on contradiction (#38)
 - memory: Rank recall by similarity, log capture votes (#34)
 
 ### 🔧 Internal
@@ -36,15 +38,25 @@ ADDED    scry_core::reverify
 ADDED    scry_core::reverify::Candidate
 ADDED    scry_core::reverify::Prepared
 ADDED    scry_core::reverify::ReverifyReport
+ADDED    scry_core::reverify::Verdict
 ADDED    scry_core::reverify::commit
 ADDED    scry_core::reverify::prepare
 ADDED    scry_core::reverify::score
 ADDED    scry_core::verify::ClaimScorer
+CHANGED  scry_core::config::VerifyConfig (signature)
 CHANGED  scry_core::memory::recall_with_vector (signature)
+CHANGED  scry_core::memory_gc::GcReport (signature)
+CHANGED  scry_core::memory_gc::gc (body)
+CHANGED  scry_core::store::MemoryRow (signature)
+CHANGED  scry_core::store::memories::MemoryRow (signature)
 
 # scry-server
 ADDED    scry_server::api::ReverifyRequest
 ADDED    scry_server::api::ReverifyResponse
+CHANGED  scry_server::AppState (signature)
+CHANGED  scry_server::QueryCache (signature)
+CHANGED  scry_server::api::RecallRequest (signature)
+CHANGED  scry_server::query_cache::QueryCache (signature)
 CHANGED  scry_server::router (body)
 ```
 
