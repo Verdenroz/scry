@@ -92,9 +92,8 @@ pub async fn answer(
         .await
         .map_err(|e| ApiError::Unavailable(e.to_string()))?;
 
-    let answer = citations::normalize(answer.trim());
-    let cited = citations::cited(&answer, sources.len());
     Ok(Json(AnswerResponse {
+        answer: citations::normalize(answer.trim()),
         citations: sources
             .into_iter()
             .enumerate()
@@ -102,9 +101,7 @@ pub async fn answer(
                 n: i + 1,
                 source: source.label,
             })
-            .filter(|citation| cited.is_empty() || cited.contains(&citation.n))
             .collect(),
-        answer,
     }))
 }
 

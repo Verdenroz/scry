@@ -32,22 +32,6 @@ pub(super) fn normalize(answer: &str) -> String {
     out
 }
 
-/// Source numbers in `1..=count` that the answer cites as `[N]` or
-/// `[N, M]`, ascending.
-pub(super) fn cited(answer: &str, count: usize) -> Vec<usize> {
-    let mut numbers: Vec<usize> = answer
-        .split('[')
-        .skip(1)
-        .filter_map(|part| part.split_once(']'))
-        .flat_map(|(inside, _)| inside.split(','))
-        .filter_map(|n| n.trim().parse().ok())
-        .filter(|n| (1..=count).contains(n))
-        .collect();
-    numbers.sort_unstable();
-    numbers.dedup();
-    numbers
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,11 +48,5 @@ mod tests {
     fn normalize_leaves_prose_and_bracket_markers_alone() {
         let text = "Source code in [3] is the Source of truth";
         assert_eq!(normalize(text), text);
-    }
-
-    #[test]
-    fn cited_collects_in_range_numbers_once() {
-        assert_eq!(cited("a [2] b [5, 1] c [2] d [9] e [x]", 5), vec![1, 2, 5]);
-        assert!(cited("no markers", 5).is_empty());
     }
 }

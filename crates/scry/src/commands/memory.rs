@@ -123,12 +123,18 @@ pub async fn recall(args: &[String]) -> Result<()> {
             min_score,
         })
         .await?;
-    if response.memories.is_empty() {
+    // A server that predates `min_score` ignores it and returns everything.
+    let memories: Vec<_> = response
+        .memories
+        .iter()
+        .filter(|m| m.score >= min_score)
+        .collect();
+    if memories.is_empty() && min_score > 0.0 {
         eprintln!(
             "no memories scored {min_score:.2} or higher for this query; --min-score 0 lists the nearest anyway"
         );
     }
-    for memory in &response.memories {
+    for memory in memories {
         let stale = if memory.stale { " (stale)" } else { "" };
         println!(
             "[{} #{}] ({:.2}){} {}",
