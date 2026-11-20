@@ -320,6 +320,8 @@ mod tests {
             stale_at: None,
             superseded_by: None,
             helpful_at: None,
+            reverified_at: None,
+            contradicted_at: None,
         }
     }
 

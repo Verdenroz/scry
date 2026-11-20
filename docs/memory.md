@@ -68,7 +68,9 @@ flips to `stale`: still retrievable, demoted to half weight, and flagged
 in output. This is the mechanical answer to "does this memory need
 updating"; anchored memories cannot silently stay confidently wrong. Any
 edit to the file flips it, so most stale memories are still true;
-`scry memory reverify` (below) re-checks them against the current code.
+`scry memory reverify` (below) re-checks them against the current code,
+and a stale memory is only archived early when that check finds the code
+contradicting it.
 
 Scry records when a memory goes stale, so a brief can surface what
 changed recently.
@@ -162,15 +164,25 @@ current code with the `[verify]` model, oldest first, one at a time. The
 evidence is the anchored file's indexed chunks, each prefixed
 `relpath:start-end`, capped at 6000 characters: the chunks overlapping the
 anchor's line range, or for an anchor without one the 3 chunks nearest
-the memory's embedding. A score at or above the `[verify]` threshold
-reaffirms the memory, re-hashing its anchors and appending
-`reverified against <relpath>:<a-b> (p=0.93)` to its evidence. Anything
-else stays stale.
+the memory's embedding. There are three outcomes:
 
-It prints `checked`, `reaffirmed`, `still_stale`, `skipped` (an anchored
-file is no longer indexed), and `errors` (the verifier failed; the memory
-stays stale and the run continues). `--dry-run` scores without changing
-anything. Without `[verify]` it prints `not configured` and exits 0.
+- Supported: the support score is at or above the `[verify]` `threshold`.
+  The memory is reaffirmed, re-hashing its anchors and appending
+  `reverified against <relpath>:<a-b> (p=0.93)` to its evidence.
+- Contradicted: not supported, and a second question, whether the evidence
+  shows the claim is no longer true, scores at or above
+  `contradiction_threshold`. The memory stays stale and is stamped for gc
+  to archive.
+- Inconclusive: neither. The memory stays stale and is not rescored until
+  its file changes again. Code often cannot prove an empirical claim
+  (a machine quirk, a service's behaviour) without contradicting it, so
+  this is not treated as wrong.
+
+It prints `checked`, `reaffirmed`, `contradicted`, `still_stale`
+(inconclusive), `skipped` (an anchored file is no longer indexed), and
+`errors` (the verifier failed; nothing is stamped and the run continues).
+`--dry-run` scores without changing anything. Without `[verify]` it prints
+`not configured` and exits 0.
 
 ### GC and restore
 
@@ -184,9 +196,13 @@ the vector is deleted, and recall, brief, and stale listings skip them.
 Each row counts toward the first rule it matches:
 
 - `superseded`: replaced by another memory.
+- `contradicted`: stale, with no helpful vote since it went stale, and
+  `reverify` found the current code contradicting it since it went stale.
+  No age wait.
 - `stale`: stale for longer than `[memory] gc_stale_days` with no helpful
-  vote since it went stale. With `[verify]` configured that means it failed
-  `reverify` or has not been checked yet.
+  vote since it went stale and no `reverify` check since it went stale
+  (no `[verify]` configured, or its file is no longer indexed). A memory
+  checked and found inconclusive is never archived on age.
 - `episodes`: an `episode` with no helpful votes whose recall score at
   similarity 1.0 is below `[memory] gc_episode_floor`.
 - `noise`: no helpful votes, and suppressed in its own scope (a repo
@@ -205,7 +221,7 @@ again at once. Superseded memories cannot be restored.
 ```toml
 [memory]
 half_life_days = 29
-gc_stale_days = 14
+gc_stale_days = 30
 gc_episode_floor = 0.1
 ```
 
@@ -247,6 +263,7 @@ answer as the score.
 base_url = "http://localhost:12434/v1"
 model = "qwen3.6:35b-a3b"
 threshold = 0.2
+contradiction_threshold = 0.8
 ```
 
 ```toml
@@ -255,6 +272,11 @@ api = "systemone"
 base_url = "http://localhost:8017/v1"
 model = "jevos-v4"
 ```
+
+`contradiction_threshold` (default 0.8) is the minimum P(yes) to the
+question "does the evidence show the claim is no longer true" for
+`reverify` to mark a memory contradicted. The question has its own prompt;
+`prompt` overrides only the support question.
 
 ### Calibration
 
@@ -270,6 +292,18 @@ with zero false accepts and two of 14 good claims rejected at 0.2 (six
 rejected at 0.5). That is one measurement on a small set, not a default.
 The same set scored `jevos-v4` through `systemone` at AUROC 0.45 to 0.77
 depending on phrasing, so calibrate before trusting any verifier.
+
+`eval/contradiction-pairs.jsonl` holds the contradiction question's
+labelled rows in the same shape, with `label` 1 for a claim the evidence
+contradicts (a hand-edited copy of a real memory) and 0 for a real stale
+memory presumed true. `scry memory verify --eval` cannot score it, since
+it asks the support question. Scored against the llama-swap
+`qwen3.6:35b-a3b` example above, on a larger private set of 91 presumed-true
+pairs and 27 edited ones, no presumed-true pair scored 0.8 or higher
+(highest 0.76), 2 scored 0.5 or higher, and no edited pair scored 0.8 or
+higher (8 of 27 reached 0.5). The default therefore archives nothing the
+model is not sure of, and catches few contradictions; a model that
+separates the two sets better can use a lower value.
 
 ## Automatic capture
 

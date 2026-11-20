@@ -254,11 +254,16 @@ pub async fn reverify(
         .call(move |store| reverify::prepare(store, request.limit))
         .await?;
     let skipped = prepared.skipped;
-    let scored = reverify::score(verifier, prepared.candidates).await;
-    let threshold = verifier.threshold();
+    let scored = reverify::score(
+        verifier,
+        prepared.candidates,
+        verifier.threshold(),
+        verifier.contradiction_threshold(),
+    )
+    .await;
     let report = state
         .store
-        .call(move |store| reverify::commit(store, scored, skipped, threshold, request.dry_run))
+        .call(move |store| reverify::commit(store, scored, skipped, request.dry_run))
         .await?;
     Ok(Json(ReverifyResponse {
         configured: true,

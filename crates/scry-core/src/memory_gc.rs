@@ -12,6 +12,7 @@ const GLOBAL_NOISE_SCOPES: usize = 2;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GcReport {
     pub superseded: usize,
+    pub contradicted: usize,
     pub stale: usize,
     pub episodes: usize,
     pub noise: usize,
@@ -19,12 +20,13 @@ pub struct GcReport {
 
 impl GcReport {
     pub fn total(&self) -> usize {
-        self.superseded + self.stale + self.episodes + self.noise
+        self.superseded + self.contradicted + self.stale + self.episodes + self.noise
     }
 }
 
 enum Rule {
     Superseded,
+    Contradicted,
     Stale,
     Episode,
     Noise,
@@ -44,6 +46,7 @@ pub fn gc(store: &mut Store, config: &MemoryConfig, dry_run: bool) -> Result<GcR
         };
         match rule {
             Rule::Superseded => report.superseded += 1,
+            Rule::Contradicted => report.contradicted += 1,
             Rule::Stale => report.stale += 1,
             Rule::Episode => report.episodes += 1,
             Rule::Noise => report.noise += 1,
@@ -56,17 +59,27 @@ pub fn gc(store: &mut Store, config: &MemoryConfig, dry_run: bool) -> Result<GcR
     Ok(report)
 }
 
+/// A stale memory goes at once when reverify found its code contradicting it,
+/// or after `gc_stale_days` if nothing has checked it since it went stale.
+fn stale_rule(row: &MemoryRow, config: &MemoryConfig, now: i64) -> Option<Rule> {
+    let stale_at = row.stale_at.filter(|_| row.status == "stale")?;
+    if row.helpful_at.is_some_and(|voted| voted >= stale_at) {
+        return None;
+    }
+    if row.contradicted_at.is_some_and(|at| at >= stale_at) {
+        return Some(Rule::Contradicted);
+    }
+    let stale_cutoff = now - i64::from(config.gc_stale_days) * 86_400;
+    let unchecked = row.reverified_at.is_none_or(|at| at < stale_at);
+    (unchecked && stale_at < stale_cutoff).then_some(Rule::Stale)
+}
+
 fn matching_rule(row: &MemoryRow, scopes: &[i64], config: &MemoryConfig, now: i64) -> Option<Rule> {
     if row.superseded_by.is_some() {
         return Some(Rule::Superseded);
     }
-    let stale_cutoff = now - i64::from(config.gc_stale_days) * 86_400;
-    if let Some(stale_at) = row.stale_at
-        && row.status == "stale"
-        && stale_at < stale_cutoff
-        && row.helpful_at.is_none_or(|voted| voted < stale_at)
-    {
-        return Some(Rule::Stale);
+    if let Some(rule) = stale_rule(row, config, now) {
+        return Some(rule);
     }
     if row.kind == "episode"
         && row.helpful_count == 0
@@ -184,6 +197,7 @@ mod tests {
         let config = MemoryConfig::default();
         let expected = GcReport {
             superseded: 1,
+            contradicted: 0,
             stale: 1,
             episodes: 1,
             noise: 2,
@@ -211,5 +225,47 @@ mod tests {
             ]
         );
         assert_eq!(gc(&mut store, &config, false).unwrap().total(), 0);
+    }
+
+    fn stale_with(store: &mut Store, seed: f32, set: &str) -> i64 {
+        let id = add(store, "lesson", seed);
+        exec(
+            store,
+            &format!("UPDATE memories SET status = 'stale', stale_at = 1000, {set} WHERE id = ?1"),
+            id,
+        );
+        id
+    }
+
+    #[test]
+    fn stale_rule_follows_the_check_history() {
+        let mut store = Store::open_in_memory("m", 4).unwrap();
+        stale_with(
+            &mut store,
+            0.1,
+            "reverified_at = unixepoch(), contradicted_at = unixepoch()",
+        );
+        let fresh = add(&mut store, "lesson", 0.2);
+        exec(
+            &store,
+            "UPDATE memories SET status = 'stale', stale_at = unixepoch(),
+                 contradicted_at = unixepoch() WHERE id = ?1",
+            fresh,
+        );
+        let inconclusive = stale_with(&mut store, 0.3, "reverified_at = unixepoch()");
+        stale_with(&mut store, 0.4, "reverified_at = 500");
+        stale_with(&mut store, 0.5, "reverified_at = NULL");
+        stale_with(&mut store, 0.6, "contradicted_at = 500");
+        let helped = stale_with(&mut store, 0.7, "contradicted_at = 1000, helpful_at = 2000");
+
+        let report = gc(&mut store, &MemoryConfig::default(), false).unwrap();
+        assert_eq!((report.contradicted, report.stale), (2, 3));
+        let kept: Vec<i64> = store
+            .archivable_candidates()
+            .unwrap()
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(kept, vec![inconclusive, helped]);
     }
 }
