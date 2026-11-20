@@ -12,7 +12,7 @@ expect = ["src/ticker/core.rs:336"]
 
 [[case]]
 query = "where are outbound calls throttled so we stay under a vendor's per-second cap"
-expect = ["src/rate_limiter.rs:45"]
+expect = ["src/rate_limiter.rs:52"]
 
 [[case]]
 query = "how is the wait between reconnection attempts grown and randomized"
@@ -32,7 +32,7 @@ expect = ["src/risk/cvar.rs"]
 
 [[case]]
 query = "how does the web service stop one caller from eating everyone's request budget"
-expect = ["server/src/rate_limit.rs:205"]
+expect = ["server/src/rate_limit.rs:245"]
 
 [[case]]
 query = "where is the expiry window for stored responses chosen based on whether trading is open"
@@ -136,7 +136,7 @@ expect = ["server/src/metrics.rs:329"]
 
 [[case]]
 query = "build_selection_or_default"
-expect = ["finance-query-mcp/src/tools/gql.rs:445"]
+expect = ["finance-query-mcp/src/tools/gql.rs:473"]
 
 [[case]]
 query = "fetch_institutional_holdings_response"

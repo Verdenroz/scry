@@ -65,7 +65,7 @@ pub async fn run(args: SearchArgs) -> Result<()> {
             .await?;
         println!("{}\n", response.answer);
         for citation in &response.citations {
-            println!("{}: {}", citation.n, citation.source);
+            println!("[{}] {}", citation.n, citation.source);
         }
         return Ok(());
     }

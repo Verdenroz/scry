@@ -139,6 +139,9 @@ pub struct RecallRequest {
     pub limit: usize,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    /// Memories scoring below this are neither returned nor touched.
+    #[serde(default)]
+    pub min_score: f64,
 }
 
 fn default_recall_limit() -> usize {

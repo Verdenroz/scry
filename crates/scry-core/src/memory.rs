@@ -217,6 +217,7 @@ pub fn recall_with_vector(
     scope: Scope,
     vector: &[f32],
     limit: usize,
+    min_score: f64,
     touch: bool,
 ) -> Result<Vec<MemoryHit>> {
     let mut hits: Vec<MemoryHit> = store
@@ -232,6 +233,7 @@ pub fn recall_with_vector(
                 content: row.content,
             }
         })
+        .filter(|hit: &MemoryHit| hit.score >= min_score)
         .collect();
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     hits.truncate(limit.max(1));

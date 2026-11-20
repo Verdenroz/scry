@@ -4,6 +4,7 @@ use axum::Json;
 use axum::extract::State;
 use scry_core::search::{SearchOptions, search_with_vector};
 
+use super::citations;
 use crate::AppState;
 use crate::api::{AnswerRequest, AnswerResponse, Citation};
 use crate::error::ApiError;
@@ -72,13 +73,13 @@ pub async fn answer(
     let mut prompt = String::from(
         "Answer the question using only the numbered sources below: excerpts from \
          the repository's files, labelled path:start-end, or web pages labelled by \
-         URL. Cite every claim with [N] markers referring to source numbers. If the \
+         URL. Cite every claim with the [N] marker of the source it comes from. If the \
          sources do not settle the question, say what is missing instead of \
          guessing. Be concise.\n\n",
     );
     for (i, source) in sources.iter().enumerate() {
         prompt.push_str(&format!(
-            "Source {}: {}\n{}\n\n",
+            "[{}] {}\n{}\n\n",
             i + 1,
             source.label,
             source.text
@@ -92,7 +93,7 @@ pub async fn answer(
         .map_err(|e| ApiError::Unavailable(e.to_string()))?;
 
     Ok(Json(AnswerResponse {
-        answer: answer.trim().to_string(),
+        answer: citations::normalize(answer.trim()),
         citations: sources
             .into_iter()
             .enumerate()

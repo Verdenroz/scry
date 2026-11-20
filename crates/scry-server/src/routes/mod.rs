@@ -1,4 +1,5 @@
 mod answer;
+mod citations;
 mod memories;
 mod search;
 mod status;

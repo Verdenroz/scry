@@ -75,7 +75,14 @@ pub async fn recall(
         .store
         .call(move |store| {
             let scope = store.scope(request.repo_key.as_deref())?;
-            recall_with_vector(store, scope, &vector, request.limit, request.touch)
+            recall_with_vector(
+                store,
+                scope,
+                &vector,
+                request.limit,
+                request.min_score,
+                request.touch,
+            )
         })
         .await?;
     Ok(Json(RecallResponse {
