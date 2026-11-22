@@ -10,6 +10,9 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### 🔧 Internal
+
+- Bump soothfast to 0.7.0 (#51)
 
 
 ## 0.5.0 - 2026-11-20
