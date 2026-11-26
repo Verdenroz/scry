@@ -10,6 +10,10 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### 🐛 Fixes
+
+- plugin: Watch only git repos or .scry.toml dirs (#53)
+
 ### 🔧 Internal
 
 - Bump soothfast to 0.7.0 (#51)
