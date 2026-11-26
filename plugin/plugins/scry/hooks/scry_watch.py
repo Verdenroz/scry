@@ -156,6 +156,20 @@ def at_or_above_home(cwd: str) -> bool:
     return home == cwd or cwd in home.parents
 
 
+def is_project(cwd: str) -> bool:
+    if (Path(cwd) / ".scry.toml").is_file():
+        return True
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
+
+
 if __name__ == "__main__":
     if os.environ.get("SCRY_CAPTURE") == "1":
         sys.exit(0)
@@ -167,8 +181,8 @@ if __name__ == "__main__":
         spawn_gc(cwd)
     # No watch and no mandate outside a real project: builtin tools stay
     # primary there, with global scry search offered instead.
-    if at_or_above_home(cwd):
-        debug_log(f"session cwd {cwd} is at or above home; offering global search only")
+    if at_or_above_home(cwd) or not is_project(cwd):
+        debug_log(f"session cwd {cwd} is not a project; offering global search only")
         print(context(GLOBAL_NOTE + memory_brief(cwd) + work_brief(cwd)))
         sys.exit(0)
 

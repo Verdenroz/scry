@@ -101,6 +101,27 @@ class GcTests(unittest.TestCase):
         self.assertFalse(self.stamp.exists())
 
 
+class ProjectTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def test_plain_directory_is_not_a_project(self):
+        self.assertFalse(scry_watch.is_project(str(self.dir)))
+
+    def test_git_repo_and_its_subdirectories_are_projects(self):
+        subprocess.run(["git", "init", "-q", str(self.dir)], check=True)
+        sub = self.dir / "src"
+        sub.mkdir()
+        self.assertTrue(scry_watch.is_project(str(self.dir)))
+        self.assertTrue(scry_watch.is_project(str(sub)))
+
+    def test_scry_toml_marks_a_project(self):
+        (self.dir / ".scry.toml").write_text('[project]\nname = "x"\n')
+        self.assertTrue(scry_watch.is_project(str(self.dir)))
+
+
 class GuardTests(unittest.TestCase):
     def test_every_hook_exits_silently_under_capture_env(self):
         payload = json.dumps(
