@@ -18,6 +18,8 @@ USAGE:
                                          (--full re-chunks every file)
   scry watch                             sync continuously while you work
   scry status                            show server index counts
+  scry reembed                           move the db to the configured embedding model
+                                         (server stopped; backs the db up first)
   scry eval <cases.toml> [--runs N] [--limit N]  score retrieval against a golden set
   scry remember \"insight\" [--kind K] [--pain N] [--anchor path[:a-b]]
                                          [--source agent|capture] [--evidence T]
@@ -114,7 +116,8 @@ pub fn parse_search_args(args: &[String]) -> Result<SearchArgs> {
 }
 
 const SUBCOMMANDS: &[&str] = &[
-    "serve", "index", "watch", "status", "eval", "remember", "recall", "memory", "repo", "work",
+    "serve", "index", "watch", "status", "reembed", "eval", "remember", "recall", "memory", "repo",
+    "work",
 ];
 
 /// True when a known subcommand was asked for help. Flags after `--` are
@@ -147,6 +150,7 @@ pub async fn dispatch(args: &[String]) -> Result<()> {
         Some("index") => commands::index::run(&args[1..]).await,
         Some("watch") => commands::watch::run().await,
         Some("status") => commands::status::run().await,
+        Some("reembed") => commands::reembed::run(&args[1..]).await,
         Some("eval") => commands::eval::run(&args[1..]).await,
         Some("remember") => commands::memory::remember(&args[1..]).await,
         Some("recall") => commands::memory::recall(&args[1..]).await,

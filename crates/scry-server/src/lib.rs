@@ -50,6 +50,7 @@ impl AppState {
             &config.embedding.model,
             config.embedding.dim,
         )?;
+        store.guard_document_prefix(&config.embedding.document_prefix)?;
         Ok(Self::new(store, config))
     }
 

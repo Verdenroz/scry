@@ -2,6 +2,7 @@ pub mod eval;
 pub mod index;
 pub mod lifecycle;
 pub mod memory;
+pub mod reembed;
 pub mod repo;
 pub mod search;
 pub mod serve;

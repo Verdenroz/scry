@@ -68,7 +68,7 @@ pub async fn recall(
 ) -> Result<Json<RecallResponse>, ApiError> {
     let vector = state
         .embedder
-        .embed(std::slice::from_ref(&request.query))
+        .embed_queries(std::slice::from_ref(&request.query))
         .await?
         .pop()
         .ok_or_else(|| ApiError::Internal("empty embedding response".to_string()))?;

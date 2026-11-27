@@ -106,6 +106,14 @@ pub struct EmbeddingConfig {
     pub dim: usize,
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+    /// Prepended to search and recall queries; for models trained with an
+    /// instruction prefix. Changing it needs no reindex.
+    #[serde(default)]
+    pub query_prefix: String,
+    /// Prepended to every stored chunk and memory input. Changing it
+    /// invalidates stored vectors: run `scry reembed`.
+    #[serde(default)]
+    pub document_prefix: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -296,6 +304,8 @@ impl Default for EmbeddingConfig {
             model: default_embedding_model(),
             dim: default_dim(),
             batch_size: default_batch_size(),
+            query_prefix: String::new(),
+            document_prefix: String::new(),
         }
     }
 }
@@ -485,6 +495,18 @@ mod tests {
         assert_eq!(config.chat.unwrap().model, "qwen3-4b");
         assert_eq!(config.index.max_file_size, 2 * 1024 * 1024);
         assert_eq!(config.index.max_file_count, 500);
+    }
+
+    #[test]
+    fn embedding_prefixes_default_to_empty() {
+        let config: Config = toml::from_str(
+            "[embedding]\nquery_prefix = \"task: search | query: \"\ndocument_prefix = \"title: none | text: \"\n",
+        )
+        .unwrap();
+        assert_eq!(config.embedding.query_prefix, "task: search | query: ");
+        assert_eq!(config.embedding.document_prefix, "title: none | text: ");
+        let defaults = Config::default().embedding;
+        assert!(defaults.query_prefix.is_empty() && defaults.document_prefix.is_empty());
     }
 
     #[test]
