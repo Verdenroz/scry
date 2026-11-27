@@ -10,6 +10,10 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### ✨ Features
+
+- Embedding query/document prefixes and scry reembed (#55)
+
 ### 🐛 Fixes
 
 - plugin: Watch only git repos or .scry.toml dirs (#53)
@@ -17,6 +21,24 @@
 ### 🔧 Internal
 
 - Bump soothfast to 0.7.0 (#51)
+
+---
+
+### 🔍 API surface
+
+```
+# scry-core
+ADDED    scry_core::reembed
+ADDED    scry_core::reembed::ReembedOutcome
+ADDED    scry_core::reembed::run
+ADDED    scry_core::store::ChunkSource
+ADDED    scry_core::store::MemorySource
+ADDED    scry_core::store::reembed::ChunkSource
+ADDED    scry_core::store::reembed::MemorySource
+CHANGED  scry_core::config::EmbeddingConfig (signature)
+CHANGED  scry_core::embed::Embedder (body)
+CHANGED  scry_core::search::query_vector (body)
+```
 
 
 ## 0.5.0 - 2026-11-20
