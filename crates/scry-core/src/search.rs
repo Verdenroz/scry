@@ -182,11 +182,14 @@ pub async fn query_vector(
         if let Ok(Ok(snippet)) =
             tokio::time::timeout(HYDE_TIMEOUT, chat.complete(&prompt, HYDE_MAX_TOKENS)).await
         {
-            let vectors = embedder.embed(&[query.to_string(), snippet]).await?;
+            let (query, snippet) = ([query.to_string()], [snippet]);
+            let (mut vectors, snippet) =
+                tokio::try_join!(embedder.embed_queries(&query), embedder.embed(&snippet))?;
+            vectors.extend(snippet);
             return Ok(average(&vectors));
         }
     }
-    let mut vectors = embedder.embed(&[query.to_string()]).await?;
+    let mut vectors = embedder.embed_queries(&[query.to_string()]).await?;
     vectors
         .pop()
         .ok_or_else(|| Error::Embedding("empty embedding response".to_string()))

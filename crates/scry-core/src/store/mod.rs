@@ -6,11 +6,13 @@ mod chunks;
 mod files;
 mod lifecycle;
 mod memories;
+mod reembed;
 mod work;
 
 pub use chunks::{ChunkRow, DenseHit, LexicalHit, NewChunk};
 pub use files::StoredFile;
 pub use memories::{MemoryAnchor, MemoryRow, NewMemory, Scope, SourceStats};
+pub use reembed::{ChunkSource, MemorySource};
 pub use work::{WORK_STATUSES, WorkItem, WorkList};
 
 use std::path::Path;
@@ -57,13 +59,18 @@ impl Store {
         Self::init(Connection::open_in_memory()?, embedding_model, dim)
     }
 
-    fn init(conn: Connection, embedding_model: &str, dim: usize) -> Result<Self> {
+    fn configure(conn: &Connection) -> Result<()> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.pragma_update(None, "cache_size", -65536)?;
         conn.pragma_update(None, "mmap_size", 268_435_456)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        Ok(())
+    }
+
+    fn init(conn: Connection, embedding_model: &str, dim: usize) -> Result<Self> {
+        Self::configure(&conn)?;
 
         let initialized: bool = conn
             .query_row(
@@ -125,6 +132,40 @@ impl Store {
             )));
         }
         Ok(())
+    }
+
+    /// Refuses a `document_prefix` other than the one the stored vectors
+    /// were embedded with; a db with no vectors yet adopts the configured one.
+    pub fn guard_document_prefix(&self, prefix: &str) -> Result<()> {
+        let stored: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'embedding_document_prefix'",
+                [],
+                |row| row.get(0),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                e => Err(e),
+            })?;
+        let empty = self.scalar("SELECT count(*) FROM chunks")? == 0
+            && self.scalar("SELECT count(*) FROM memories")? == 0;
+        match stored {
+            None if empty => {
+                self.conn.execute(
+                    "INSERT INTO meta (key, value) VALUES ('embedding_document_prefix', ?1)",
+                    [prefix],
+                )?;
+                Ok(())
+            }
+            stored if stored.as_deref().unwrap_or("") == prefix => Ok(()),
+            stored => Err(Error::Config(format!(
+                "db vectors were embedded with document_prefix = {:?}, config says {prefix:?}; \
+                 run `scry reembed`",
+                stored.unwrap_or_default()
+            ))),
+        }
     }
 
     pub fn upsert_repo(&self, key: &str) -> Result<i64> {

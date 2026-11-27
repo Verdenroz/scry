@@ -54,3 +54,14 @@ The entire index and memory store is one file (`db_path`). Copy it, and a
 new host has everything. The embedding model and dimension are stamped
 inside; a server configured with a different model refuses the file
 instead of silently mixing vector spaces.
+
+To switch models, stop the server, point `[embedding]` at the new model
+and `dim`, and run `scry reembed`. It copies the db to
+`<db_path>.pre-reembed-<unix time>`, then rebuilds every chunk and memory
+vector from the text the db already holds, so memories, work lists and
+repos indexed from other machines all carry over. Models trained with
+instruction prefixes take `query_prefix` and `document_prefix` under
+`[embedding]`. The db records the `document_prefix` its vectors were
+embedded with and the server refuses a different one, so a new
+`document_prefix` goes through `scry reembed`; a new `query_prefix` needs
+nothing.
