@@ -10,6 +10,10 @@
 <!-- What a consumer has to do. "Nothing" is a useful answer. -->
 <!-- /soothfast:notes -->
 
+### 💥 Breaking changes
+
+- Default embeddings to embeddinggemma-2 (#57)
+
 ### ✨ Features
 
 - Embedding query/document prefixes and scry reembed (#55)
