@@ -112,7 +112,7 @@ pub struct EmbeddingConfig {
     pub query_prefix: String,
     /// Prepended to every stored chunk and memory input. Changing it
     /// invalidates stored vectors: run `scry reembed`.
-    #[serde(default)]
+    #[serde(default = "default_document_prefix")]
     pub document_prefix: String,
 }
 
@@ -263,11 +263,15 @@ fn default_embedding_key() -> String {
 }
 
 fn default_embedding_model() -> String {
-    "harrier-oss:0.6b".to_string()
+    "embeddinggemma-2".to_string()
 }
 
 fn default_dim() -> usize {
-    1024
+    768
+}
+
+fn default_document_prefix() -> String {
+    "title: none | text: ".to_string()
 }
 
 fn default_batch_size() -> usize {
@@ -305,7 +309,7 @@ impl Default for EmbeddingConfig {
             dim: default_dim(),
             batch_size: default_batch_size(),
             query_prefix: String::new(),
-            document_prefix: String::new(),
+            document_prefix: default_document_prefix(),
         }
     }
 }
@@ -452,7 +456,10 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.server.listen, "127.0.0.1:7345");
         assert_eq!(config.client.server_url, "http://127.0.0.1:7345");
-        assert_eq!(config.embedding.dim, 1024);
+        assert_eq!(config.embedding.model, "embeddinggemma-2");
+        assert_eq!(config.embedding.dim, 768);
+        assert_eq!(config.embedding.document_prefix, "title: none | text: ");
+        assert!(config.embedding.query_prefix.is_empty());
         assert_eq!(config.index.max_file_size, 1024 * 1024);
         assert!(config.chat.is_none());
         assert!(config.tavily.is_none());
@@ -498,15 +505,13 @@ mod tests {
     }
 
     #[test]
-    fn embedding_prefixes_default_to_empty() {
+    fn parses_embedding_prefixes() {
         let config: Config = toml::from_str(
             "[embedding]\nquery_prefix = \"task: search | query: \"\ndocument_prefix = \"title: none | text: \"\n",
         )
         .unwrap();
         assert_eq!(config.embedding.query_prefix, "task: search | query: ");
         assert_eq!(config.embedding.document_prefix, "title: none | text: ");
-        let defaults = Config::default().embedding;
-        assert!(defaults.query_prefix.is_empty() && defaults.document_prefix.is_empty());
     }
 
     #[test]

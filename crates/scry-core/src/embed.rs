@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_prefixes_send_inputs_unchanged() {
+    async fn an_empty_query_prefix_sends_queries_unchanged() {
         let (base_url, received) = stub_endpoint();
         let embedder = HttpEmbedder::new(EmbeddingConfig {
             base_url,

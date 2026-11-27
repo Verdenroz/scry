@@ -1,5 +1,6 @@
 # Self-contained scry deployment: server + CPU embedding endpoint.
-# Put an embedding GGUF at ./models/embedding.gguf and a config at
+# Put an embedding GGUF (embeddinggemma-2-BF16.gguf from
+# ggml-org/embeddinggemma-2-GGUF) at ./models/embedding.gguf and a config at
 # ./config.toml (start from config.example.toml), then `docker compose up`.
 services:
   scry:
