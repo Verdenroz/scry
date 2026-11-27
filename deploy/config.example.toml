@@ -11,8 +11,9 @@ db_path = "~/.local/share/scry/index.db"
 [embedding]
 base_url = "http://localhost:12434/v1"   # any OpenAI-compatible /v1/embeddings
 api_key = "ollama"
-model = "harrier-oss:0.6b"
-dim = 1024
+model = "embeddinggemma-2"                # ggml-org/embeddinggemma-2-GGUF
+dim = 768
+document_prefix = "title: none | text: "  # what embeddinggemma-2 was trained with
 batch_size = 32
 
 # Enables --answer and HyDE query expansion. Point at any OpenAI-compatible

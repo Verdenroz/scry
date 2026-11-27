@@ -128,7 +128,7 @@ impl Store {
         if stored != expected {
             return Err(Error::Config(format!(
                 "db has {key} = {stored}, config says {expected}; \
-                 use a different db_path or reindex from scratch"
+                 run `scry reembed` to move it, or use a different db_path"
             )));
         }
         Ok(())
@@ -451,6 +451,7 @@ mod tests {
         Store::open(&path, "model-a", 4).unwrap();
         let err = Store::open(&path, "model-b", 4).err().unwrap();
         assert!(err.to_string().contains("embedding_model"));
+        assert!(err.to_string().contains("scry reembed"));
     }
 
     #[test]

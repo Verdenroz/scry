@@ -21,7 +21,8 @@ scry eval cases.toml                         # Recall@10 / MRR when touching ran
 ```
 
 Live end-to-end needs an OpenAI-compatible embedding endpoint (default
-`http://localhost:12434/v1`, model `harrier-oss:0.6b`, 1024-dim); unit and
+`http://localhost:12434/v1`, model `embeddinggemma-2`, 768-dim, document
+prefix `title: none | text: `); unit and
 integration tests never do.
 
 ## Architecture
